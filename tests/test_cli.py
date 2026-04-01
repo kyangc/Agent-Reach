@@ -211,9 +211,10 @@ class TestCmdRead:
         assert "note_id" in out
 
     def test_read_exits_with_error_for_unsupported_channel(self, monkeypatch, capsys):
-        """Channel without read() → exit code 1"""
+        """No channel can read → exit code 1 (Web fallback also fails)"""
         from agent_reach.channels.base import Channel
         from agent_reach.channels.twitter import TwitterChannel
+        from agent_reach.channels.web import WebChannel
 
         def fake_can_handle(self, url): return True
 
@@ -221,6 +222,8 @@ class TestCmdRead:
         # TwitterChannel.read directly so instance calls go to our mock
         monkeypatch.setattr(Channel, "can_handle", fake_can_handle)
         monkeypatch.setattr(TwitterChannel, "read", lambda self, url: (_ for _ in ()).throw(NotImplementedError()))
+        # Web fallback also fails (simulates network error)
+        monkeypatch.setattr(WebChannel, "read", lambda self, url: (_ for _ in ()).throw(RuntimeError("network error")))
 
         with patch("sys.argv", ["agent-reach", "read", "https://x.com/test"]):
             with pytest.raises(SystemExit) as exc:
