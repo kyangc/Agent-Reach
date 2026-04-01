@@ -127,7 +127,8 @@ class XiaoHongShuChannel(Channel):
         return _domain_matches(d, "xiaohongshu.com") or _domain_matches(d, "xhslink.com")
 
     def read(self, url: str) -> str:
-        """Read a XHS note via xhs-cli, return raw JSON."""
+        """Read a XHS note via xhs-cli, return cleaned JSON."""
+        import json
         xhs = shutil.which("xhs")
         if not xhs:
             raise RuntimeError("xhs-cli not installed. Run: pipx install xiaohongshu-cli")
@@ -135,7 +136,15 @@ class XiaoHongShuChannel(Channel):
             [xhs, "read", url, "--json"],
             capture_output=True, encoding="utf-8", errors="replace", timeout=30,
         )
-        return result.stdout or result.stderr or ""
+        raw = result.stdout or result.stderr or ""
+        if not raw:
+            return ""
+        try:
+            data = json.loads(raw)
+            cleaned = format_xhs_result(data)
+            return json.dumps(cleaned, ensure_ascii=False, indent=2)
+        except (json.JSONDecodeError, TypeError):
+            return raw
 
     def check(self, config=None):
         xhs = shutil.which("xhs")
