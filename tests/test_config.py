@@ -11,6 +11,12 @@ import yaml
 from agent_reach.config import Config
 
 
+@pytest.fixture(autouse=True)
+def _isolate_env(monkeypatch):
+    """Remove EXA_API_KEY from env so tests start clean."""
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+
+
 @pytest.fixture
 def tmp_config(tmp_path):
     """Create a Config with a temporary directory."""
