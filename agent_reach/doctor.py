@@ -16,10 +16,21 @@ def _should_sync_from_cookiecloud(channel_name: str) -> bool:
         return False
 
     try:
+        import os
         from pathlib import Path
         from agent_reach.config import Config
+
         cfg = Config()
         cc = cfg.data.get("cookiecloud", {})
+
+        # Auto-enable if COOKIECLOUD_PASSWORD is set (no manual configure needed)
+        cookiecloud_enabled = cc.get("enabled")
+        has_password = bool(os.environ.get("COOKIECLOUD_PASSWORD"))
+        if has_password and not cookiecloud_enabled:
+            cc["enabled"] = True
+            cfg.data["cookiecloud"] = cc
+            cfg.save()
+
         if not cc.get("enabled"):
             return False
 
