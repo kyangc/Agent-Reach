@@ -1115,3 +1115,606 @@ COOKIECLOUD_PASSWORD=macmini agent-reach doctor
 | CookieCloud 服务器不可达 | 中 | Doctor 静默降级，打印警告，继续检查 |
 | `cookiecloud-decrypt` 依赖安装失败 | 低 | pipx/uv 安装时处理 |
 | `_ConfigWrapper` 与 `Config` 类行为不一致 | 中 | 仅用于 cookie 同步，简单 key get/set，无复杂逻辑 |
+
+---
+
+## 测试设计
+
+### 现有测试模式
+
+项目使用 **pytest** + **`unittest.mock`**：
+- `patch("sys.argv", [...])` — CLI 命令测试
+- `capsys` — stdout/stderr 捕获
+- `pytest.raises(SystemExit)` — 退出码验证
+- `monkeypatch` — 模块级打桩（`shutil.which`、`subprocess.run`、`urllib.request` 等）
+- `tmp_path` — 临时文件和目录
+- 自定义 `_cp()` helper — 构造 `subprocess.CompletedProcess` 假对象
+- `FakeResponse` 类 — 伪造 HTTP 响应
+- `_StubChannel` — doctor 测试用假 channel
+- 无 `conftest.py`，fixtures 在各测试文件内联定义
+
+---
+
+### PR-1 测试：文档对齐 + 代码清理
+
+**文件**：`tests/test_cli.py`（新增类）
+
+```python
+class TestConfigureXhsCookies:
+    """PR-1: _configure_xhs_cookies() 重写，不再写 Docker。"""
+
+    def test_parses_header_string_and_writes_xhs_file(self, tmp_path, monkeypatch):
+        """输入 "a1=xxx; web_session=yyy" → 写入 ~/.xiaohongshu-cli/cookies.json"""
+        # Mock Path.home() to tmp_path
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+
+        cli._configure_xhs_cookies("a1=abc123; web_session=xyz789")
+
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        assert cookie_file.exists()
+        data = json.loads(cookie_file.read_text())
+        assert data["a1"] == "abc123"
+        assert data["web_session"] == "xyz789"
+        assert "saved_at" in data
+
+    def test_parses_json_array_and_writes_xhs_file(self, tmp_path, monkeypatch):
+        """输入 Cookie-Editor JSON 导出 → 写入 xhs-cli 格式"""
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        json_input = json.dumps([
+            {"name": "a1", "value": "val1"},
+            {"name": "webId", "value": "val2"},
+        ])
+        cli._configure_xhs_cookies(json_input)
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        data = json.loads(cookie_file.read_text())
+        assert data["a1"] == "val1"
+
+    def test_requires_a1_cookie(self, tmp_path, monkeypatch):
+        """缺少 a1 时报错，不写文件"""
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        cli._configure_xhs_cookies("other=value")
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        assert not cookie_file.exists()
+
+    def test_sets_file_permissions_0600(self, tmp_path, monkeypatch):
+        """cookie 文件必须为 0o600"""
+        import stat
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        cli._configure_xhs_cookies("a1=xxx")
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        mode = cookie_file.stat().st_mode
+        assert not (mode & stat.S_IROTH)
+
+    def test_no_docker_dependency(self, monkeypatch):
+        """_configure_xhs_cookies 不再调用 docker 命令"""
+        calls = []
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: calls.append(args))
+        monkeypatch.setattr(shutil, "which", lambda _: None)
+        monkeypatch.setattr(pathlib.Path, "home", lambda: pathlib.Path("/tmp"))
+
+        cli._configure_xhs_cookies("a1=xxx")
+        docker_calls = [c for c in calls if "docker" in str(c)]
+        assert docker_calls == []
+```
+
+**退化测试（regression）**：`test_cli.py` 中现有的 `_parse_twitter_cookie_input` 测试保持不变，确保清理 Docker 代码不破坏 Twitter cookie 解析。
+
+---
+
+### PR-2 测试：CLI read/search/download
+
+**文件**：`tests/test_cli.py`（新增类）
+
+```python
+class TestCmdRead:
+    """agent-reach read <url> 命令测试。"""
+
+    def test_read_twitter_url_routes_to_twitter_channel(self, monkeypatch, capsys):
+        """Twitter URL → 调用 twitter-cli read"""
+        def fake_run(cmd, **kwargs):
+            assert "twitter" in cmd
+            assert "read" in cmd
+            r = Mock()
+            r.stdout = '{"text": "fake tweet"}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/twitter" if x == "twitter" else None)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://x.com/user/status/123"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "fake tweet" in out
+
+    def test_read_xhs_url_routes_to_xhs_cli(self, monkeypatch, capsys):
+        """XHS URL → 调用 xhs read --json"""
+        def fake_run(cmd, **kwargs):
+            assert "xhs" in cmd[0]
+            r = Mock(); r.stdout = '{"note_id": "123"}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/xhs" if x == "xhs" else None)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://www.xiaohongshu.com/explore/abc"]):
+            cli.main()
+        assert "note_id" in capsys.readouterr().out
+
+    def test_read_falls_back_to_web_channel(self, monkeypatch, capsys):
+        """无法识别的 URL → 回退到 Web (Jina Reader)"""
+        # No channel handles this URL, Web fallback
+        def fake_urlopen(req, timeout=None):
+            class FR:
+                def __enter__(self): return self
+                def __exit__(self, *a): pass
+                def read(self): return b"# Fake Page\nContent here"
+            return FR()
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://unknown-site.com/page"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "Fake Page" in out or "unknown-site" in capsys.readouterr().err
+
+    def test_read_raw_flag_prints_raw_output(self, monkeypatch, capsys):
+        """--raw 时直接输出原始内容"""
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = "RAW_JSON_OUTPUT"; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/rdt" if x == "rdt" else None)
+
+        # Reddit URL triggers rdt read
+        with patch("sys.argv", ["agent-reach", "read", "--raw", "https://reddit.com/r/test/123"]):
+            cli.main()
+        assert "RAW_JSON_OUTPUT" in capsys.readouterr().out
+
+    def test_read_exits_with_error_for_unsupported_channel(self, monkeypatch, capsys):
+        """channel 不支持 read() 时退出码 1"""
+        # Mock all channels to not support read
+        def fake_can_handle(self, url): return True
+        def fake_read(self, url): raise NotImplementedError()
+        monkeypatch.setattr(Channel, "can_handle", fake_can_handle)
+        monkeypatch.setattr(Channel, "read", fake_read)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://x.com/test"]):
+            with pytest.raises(SystemExit) as exc:
+                cli.main()
+        assert exc.value.code == 1
+
+
+class TestCmdSearch:
+    """agent-reach search [platform] <query> 命令测试。"""
+
+    def test_search_exa_calls_mcporter(self, monkeypatch, capsys):
+        """无 --platform 时走 Exa（mcporter）"""
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = '{"results": []}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/mcporter" if x == "mcporter" else None)
+
+        with patch("sys.argv", ["agent-reach", "search", "machine learning"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "mcporter" in str(fake_run.call_args) or "exa" in out
+
+    def test_search_xhs_calls_xhs_cli(self, monkeypatch, capsys):
+        """--platform xhs 时走 xhs-cli"""
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = '{"items": []}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/xhs" if x == "xhs" else None)
+
+        with patch("sys.argv", ["agent-reach", "search", "--platform", "xhs", "咖啡"]):
+            cli.main()
+        args = fake_run.call_args[0][0]
+        assert "xhs" in args[0]
+        assert "search" in args
+
+    def test_search_requires_tool_when_platform_specified(self, monkeypatch, capsys):
+        """工具未安装时报错，退出码 1"""
+        monkeypatch.setattr(shutil, "which", lambda x: None)
+
+        with patch("sys.argv", ["agent-reach", "search", "--platform", "twitter", "test"]):
+            with pytest.raises(SystemExit) as exc:
+                cli.main()
+        assert exc.value.code == 1
+
+
+class TestCmdDownload:
+    """agent-reach download <url> 命令测试。"""
+
+    def test_download_calls_yt_dlp(self, monkeypatch, capsys):
+        """download 命令调用 yt-dlp"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = "[download] Destination: video.mp4\n"; r.stderr = ""
+            r.returncode = 0
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/local/bin/yt-dlp" if x == "yt-dlp" else None)
+
+        with patch("sys.argv", ["agent-reach", "download", "https://www.youtube.com/watch?v=abc"]):
+            cli.main()
+        args = fake_run.call_args[0][0]
+        assert "yt-dlp" in args
+        assert "https://www.youtube.com/watch?v=abc" in args
+
+    def test_download_passes_format_flag(self, monkeypatch, capsys):
+        """--format 参数透传给 yt-dlp"""
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = ""; r.stderr = ""; r.returncode = 0
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/local/bin/yt-dlp")
+
+        with patch("sys.argv", ["agent-reach", "download", "-f", "bestvideo",
+                                 "https://www.bilibili.com/video/BV1xx"]):
+            cli.main()
+        args = fake_run.call_args[0][0]
+        assert "-f" in args
+        assert "bestvideo" in args
+
+    def test_download_exits_nonzero_on_failure(self, monkeypatch, capsys):
+        """yt-dlp 失败时 CLI 退出码非 0"""
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = ""; r.stderr = "ERROR: Unable to download"; r.returncode = 1
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/yt-dlp")
+
+        with patch("sys.argv", ["agent-reach", "download", "https://youtube.com/v"]):
+            with pytest.raises(SystemExit) as exc:
+                cli.main()
+        assert exc.value.code != 0
+```
+
+**Channel `read()` 接口测试**（新增文件 `tests/test_channel_read.py`）：
+
+```python
+"""Tests for channel read() implementations."""
+
+class TestChannelReadInterface:
+    """所有 channel 的 read() 必须满足接口契约。"""
+
+    def test_twitter_read_returns_string(self, monkeypatch):
+        from agent_reach.channels.twitter import TwitterChannel
+        def fake_run(cmd, **kwargs):
+            r = Mock(); r.stdout = '{"id": "123"}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/bin/twitter")
+
+        ch = TwitterChannel()
+        result = ch.read("https://x.com/user/status/123")
+        assert isinstance(result, str)
+        assert "123" in result
+
+    def test_xhs_read_calls_xhs_with_json_flag(self, monkeypatch):
+        """xhs read 必须使用 --json 标志返回结构化数据"""
+        from agent_reach.channels.xiaohongshu import XiaoHongShuChannel
+        captured = []
+        def fake_run(cmd, **kwargs):
+            captured.append(cmd)
+            r = Mock(); r.stdout = '{"note_id": "n1"}'; r.stderr = ""
+            return r
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/bin/xhs")
+
+        ch = XiaoHongShuChannel()
+        ch.read("https://www.xiaohongshu.com/explore/abc")
+        assert "--json" in captured[0]
+
+    def test_web_read_returns_markdown(self, monkeypatch):
+        """Web channel read() 返回 Jina Reader Markdown"""
+        from agent_reach.channels.web import WebChannel
+        def fake_urlopen(req, timeout=None):
+            class FR:
+                def __enter__(self): return self
+                def __exit__(self, *a): pass
+                def read(self): return b"# Title\nParagraph text."
+            return FR()
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+        ch = WebChannel()
+        result = ch.read("https://example.com/article")
+        assert isinstance(result, str)
+        assert "Title" in result
+```
+
+**退化测试（regression）**：`test_channel_contracts.py` 中现有测试保持不变，确保清理后 channel registry 和 URL routing 仍然正确。
+
+---
+
+### PR-3 测试：cookie_cloud.py
+
+**文件**：`tests/test_cookie_cloud.py`（新建）
+
+```python
+# -*- coding: utf-8 -*-
+"""Tests for CookieCloud synchronization module."""
+
+import json
+import pytest
+from pathlib import Path
+from unittest.mock import patch, Mock
+
+
+class TestSyncTwitter:
+    """Twitter cookie 同步测试。"""
+
+    def _fake_cookie_data(self):
+        return {
+            ".x.com": [
+                {"name": "auth_token", "value": "tok1234567890abcdef",
+                 "domain": ".x.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+                {"name": "ct0", "value": "ct0abcdef123456",
+                 "domain": ".x.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+            ]
+        }
+
+    def test_writes_bird_credentials_env(self, tmp_path, monkeypatch):
+        """同步后写入 ~/.config/bird/credentials.env"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        cc._sync_twitter(self._fake_cookie_data(), False, _FakeConfig())
+
+        bird_file = tmp_path / ".config" / "bird" / "credentials.env"
+        assert bird_file.exists()
+        content = bird_file.read_text()
+        assert 'AUTH_TOKEN="tok1234567890abcdef"' in content
+        assert 'CT0="ct0abcdef123456"' in content
+
+    def test_sets_file_permissions_0600(self, tmp_path, monkeypatch):
+        import stat
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        cc._sync_twitter(self._fake_cookie_data(), False, _FakeConfig())
+        bird_file = tmp_path / ".config" / "bird" / "credentials.env"
+        assert not (bird_file.stat().st_mode & stat.S_IROTH)
+
+    def test_skips_when_auth_token_missing(self, tmp_path, monkeypatch):
+        """缺少 auth_token 时 skip，不写文件"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        status, _ = cc._sync_twitter({".x.com": [{"name": "ct0", "value": "x"}]}, False, _FakeConfig())
+        assert status == "skip"
+
+    def test_also_updates_config_yaml(self, tmp_path, monkeypatch):
+        """同步 Twitter 时同时更新 agent-reach config.yaml"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        cfg = _FakeConfig()
+        cc._sync_twitter(self._fake_cookie_data(), False, cfg)
+        assert cfg.data.get("twitter_auth_token") == "tok1234567890abcdef"
+
+
+class TestSyncXhs:
+    """XHS cookie 同步测试。"""
+
+    def _fake_xhs_data(self):
+        return {
+            ".xiaohongshu.com": [
+                {"name": "a1", "value": "a1val", "domain": ".xiaohongshu.com",
+                 "path": "/", "secure": False, "expirationDate": 9999999999},
+                {"name": "web_session", "value": "wsval", "domain": ".xiaohongshu.com",
+                 "path": "/", "secure": False, "expirationDate": 9999999999},
+            ]
+        }
+
+    def test_writes_xhs_cli_cookies_json(self, tmp_path, monkeypatch):
+        """写入 ~/.xiaohongshu-cli/cookies.json"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        cc._sync_xhs(self._fake_xhs_data(), False, _FakeConfig())
+
+        xhs_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        assert xhs_file.exists()
+        data = json.loads(xhs_file.read_text())
+        assert data["a1"] == "a1val"
+        assert data["web_session"] == "wsval"
+        assert "saved_at" in data
+
+    def test_requires_a1_cookie(self, tmp_path, monkeypatch):
+        """缺少 a1 时 skip"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        status, _ = cc._sync_xhs(
+            {".xiaohongshu.com": [{"name": "other", "value": "x"}]},
+            False, _FakeConfig()
+        )
+        assert status == "skip"
+
+
+class TestSyncBilibili:
+    """Bilibili cookie 同步测试。"""
+
+    def _fake_bilibili_data(self):
+        return {
+            ".bilibili.com": [
+                {"name": "SESSDATA", "value": "sess_data_val",
+                 "domain": ".bilibili.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+                {"name": "bili_jct", "value": "bili_jct_val",
+                 "domain": ".bilibili.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+            ]
+        }
+
+    def test_sets_sessdata_and_csrf(self, tmp_path, monkeypatch):
+        """SESSDATA 和 bili_jct 均写入 config.yaml"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        cfg = _FakeConfig()
+        cc._sync_bilibili(self._fake_bilibili_data(), False, cfg)
+        assert cfg.data["bilibili_sessdata"] == "sess_data_val"
+        assert cfg.data["bilibili_csrf"] == "bili_jct_val"
+
+
+class TestSyncYouTube:
+    """YouTube cookie 同步测试。"""
+
+    def _fake_youtube_data(self, with_host=True):
+        cookies = [
+            {"name": "LOGIN_INFO", "value": "login_val",
+             "domain": ".youtube.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+            {"name": "SID", "value": "sid_val",
+             "domain": ".youtube.com", "path": "/", "secure": True, "expirationDate": 9999999999},
+        ]
+        if with_host:
+            cookies.append({"name": "__Secure-1PSID", "value": "host_val",
+                            "domain": ".youtube.com", "path": "/", "secure": True, "expirationDate": 9999999999})
+        return {".youtube.com": cookies}
+
+    def test_writes_netscape_format(self, tmp_path, monkeypatch):
+        """写入 Netscape HTTP Cookie 格式"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        cc._sync_youtube(self._fake_youtube_data(), False)
+
+        yt_file = tmp_path / ".agent-reach" / "youtube_cookies.txt"
+        assert yt_file.exists()
+        lines = yt_file.read_text().splitlines()
+        assert lines[0] == "# Netscape HTTP Cookie File"
+        assert any("LOGIN_INFO" in l for l in lines)
+
+    def test_warns_when_no_host_cookies(self, tmp_path, monkeypatch):
+        """缺少 __Host-* cookie 时返回 warning 信息"""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        status, msg = cc._sync_youtube(self._fake_youtube_data(with_host=False), False)
+        assert status == "ok"
+        assert "WARNING" in msg or "__Host-" in msg
+
+
+class TestFetchAndDecrypt:
+    """CookieCloud 网络请求测试（完全 mock，不发真实请求）。"""
+
+    def test_raises_when_password_missing(self):
+        """无 COOKIECLOUD_PASSWORD 环境变量时报错"""
+        import agent_reach.cookie_cloud as cc
+        with patch.dict("os.environ", {}, clear=True):
+            with pytest.raises(RuntimeError, match="COOKIECLOUD_PASSWORD"):
+                cc._get_password()
+
+    def test_uses_env_password(self):
+        """环境变量 COOKIECLOUD_PASSWORD 优先"""
+        import agent_reach.cookie_cloud as cc
+        with patch.dict("os.environ", {"COOKIECLOUD_PASSWORD": "env_secret"}):
+            assert cc._get_password() == "env_secret"
+
+
+class _FakeConfig:
+    """测试用 Config 替代品，避免文件 I/O。"""
+    def __init__(self):
+        self.data = {}
+    def get(self, k, default=None):
+        return self.data.get(k, default)
+    def set(self, k, v):
+        self.data[k] = v
+```
+
+---
+
+### PR-4 测试：doctor 集成 + configure 完善
+
+**文件**：`tests/test_doctor.py`（新增类）
+
+```python
+class TestDoctorCookieCloudIntegration:
+    """doctor 中 CookieCloud 自动同步测试。"""
+
+    def test_does_not_block_on_cookiecloud_failure(self, monkeypatch, capsys):
+        """CookieCloud 同步失败不应中断 doctor 报告"""
+        def fake_sync(*args, **kwargs):
+            raise RuntimeError("network error")
+        monkeypatch.setattr(doctor, "_should_sync_from_cookiecloud", lambda ch: True)
+        monkeypatch.setattr(doctor, "sync_cookies", fake_sync)
+        monkeypatch.setattr(doctor, "get_all_channels", lambda: [
+            _StubChannel("twitter", "Twitter", 1, "warn", "no auth", ["twitter-cli"]),
+        ])
+
+        doctor.check_all(_FakeConfig())
+        # Doctor 应该正常完成，不崩溃
+        out = capsys.readouterr().err
+        assert "network error" in out.lower() or "CookieCloud" in out
+
+
+class TestConfigureCookiecloud:
+    """agent-reach configure cookiecloud 命令测试。"""
+
+    def test_enable_cookiecloud_writes_config(self, tmp_path, monkeypatch, capsys):
+        """configure cookiecloud 无参数时启用并打印配置"""
+        def fake_config_path():
+            return tmp_path / "config.yaml"
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        with patch("sys.argv", ["agent-reach", "configure", "cookiecloud"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "cookiecloud" in out.lower()
+        assert "enabled" in out.lower() or "✅" in out
+
+    def test_configure_list_shows_masked_credentials(self, tmp_path, monkeypatch, capsys):
+        """configure list 敏感信息必须脱敏"""
+        import yaml
+        config_file = tmp_path / ".agent-reach" / "config.yaml"
+        config_file.parent.mkdir(parents=True)
+        yaml.dump({"twitter_auth_token": "secret_token_abc123"}, config_file)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        with patch("sys.argv", ["agent-reach", "configure", "list"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "secret_token_abc123" not in out
+        assert "secret..." in out or "twitter" in out
+
+
+class _FakeConfig:
+    def __init__(self):
+        self.data = {}
+    def get(self, k, default=None):
+        return self.data.get(k, default)
+    def set(self, k, v):
+        self.data[k] = v
+```
+
+---
+
+### 测试执行命令
+
+```bash
+# 所有测试
+pytest tests/ -v
+
+# 仅新功能测试
+pytest tests/test_cookie_cloud.py -v
+pytest tests/test_channel_read.py -v
+pytest tests/test_cli.py::TestCmdRead -v
+pytest tests/test_cli.py::TestCmdSearch -v
+pytest tests/test_cli.py::TestCmdDownload -v
+pytest tests/test_cli.py::TestConfigureXhsCookies -v
+pytest tests/test_doctor.py::TestDoctorCookieCloudIntegration -v
+pytest tests/test_doctor.py::TestConfigureCookiecloud -v
+
+# 对比覆盖率（PR 前后）
+pytest tests/ -v --tb=short
+```
+
+---
+
+### PR-1 退化测试（已有测试不能破坏）
+
+现有测试清单，确保以下测试在 PR-1 后仍然通过：
+
+| 测试文件 | 测试名 | 预期 |
+|---------|-------|------|
+| `test_cli.py` | `TestCLI.test_version` | 通过 |
+| `test_cli.py` | `TestCLI.test_doctor_runs` | 通过 |
+| `test_cli.py` | `TestCLI.test_parse_twitter_cookie_input_*` | 通过 |
+| `test_channel_contracts.py` | `test_channel_registry_contract` | 通过 |
+| `test_channel_contracts.py` | `test_channel_can_handle_contract` | 通过 |
+| `test_channel_contracts.py` | `test_channel_check_contract_with_minimal_runtime` | 通过 |
+| `test_doctor.py` | `TestDoctor.test_check_all_collects_channel_results` | 通过 |
+| `test_doctor.py` | `TestDoctor.test_format_report` | 通过 |
+| `test_config.py` | 全部 | 通过 |
