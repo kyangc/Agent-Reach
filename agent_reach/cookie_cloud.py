@@ -4,10 +4,16 @@
 Fetches cookies from CookieCloud server, decrypts them, and writes
 to each platform's native storage location.
 
-Config priority: env var > config.yaml > hardcoded defaults
-  COOKIECLOUD_PASSWORD  (required)
-  COOKIECLOUD_SERVER    (default: https://router.kyangc.com:1206)
-  COOKIECLOUD_UUID      (default: macmini)
+Config priority (highest to lowest):
+  1. Environment variables   (COOKIECLOUD_PASSWORD / SERVER / UUID)
+  2. ~/.agent-reach/.env  (local .env file)
+  3. config.yaml          (agent-reach config)
+  4. Hardcoded defaults    (server=..., uuid=macmini)
+
+.env file format:
+  COOKIECLOUD_PASSWORD=your_password
+  COOKIECLOUD_SERVER=https://router.kyangc.com:1206
+  COOKIECLOUD_UUID=macmini
 """
 
 from __future__ import annotations
@@ -28,45 +34,70 @@ _CC_DEFAULTS = {
 }
 
 
-def _get_cc_config() -> Tuple[str, str, str]:
-    """Return (server, uuid, password) from env vars, config.yaml, or defaults.
+def _load_dotenv():
+    """Load ~/.agent-reach/.env into os.environ if it exists."""
+    dotenv_path = Path.home() / ".agent-reach" / ".env"
+    if dotenv_path.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path, override=False)
+        except Exception:
+            # If python-dotenv is not available, parse manually
+            with open(dotenv_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, val = line.partition("=")
+                        key = key.strip()
+                        val = val.strip().strip('"').strip("'")
+                        if key and key not in os.environ:
+                            os.environ[key] = val
 
-    Priority: env var > config.yaml > hardcoded default
+
+def _get_cc_config() -> Tuple[str, str, str]:
+    """Return (server, uuid, password).
+
+    Priority: env var > .env file > config.yaml > hardcoded default
     """
-    # Load config
+    _load_dotenv()
+
     cfg = _load_config()
     cc_cfg = cfg.get("cookiecloud", {}) or {}
 
-    # Server
+    # Server: env > .env > config > default
     server = os.environ.get("COOKIECLOUD_SERVER") or cc_cfg.get("server") or _CC_DEFAULTS["server"]
 
-    # UUID
+    # UUID: env > .env > config > default
     uuid = os.environ.get("COOKIECLOUD_UUID") or cc_cfg.get("uuid") or _CC_DEFAULTS["uuid"]
 
-    # Password
+    # Password: env > .env (keyring not supported on macOS)
     pwd = os.environ.get("COOKIECLOUD_PASSWORD")
     if pwd:
-        password = pwd
-    elif sys.platform == "darwin":
-        raise RuntimeError(
-            "COOKIECLOUD_PASSWORD environment variable not set.\n"
-            "Run: export COOKIECLOUD_PASSWORD=<your_password>\n"
-            "(keyring disabled on macOS to avoid Keychain unlock dialogs)"
-        )
-    else:
-        try:
-            import keyring
-            password = keyring.get_password("agent-reach", "cookiecloud")
-        except Exception:
-            password = None
-        if not password:
-            raise RuntimeError(
-                "CookieCloud password not set. "
-                "Set the COOKIECLOUD_PASSWORD environment variable, or run:\n"
-                "  python -c \"import keyring; keyring.set_password('agent-reach', 'cookiecloud', 'YOUR_PASSWORD')\""
-            )
+        return server, uuid, pwd
 
-    return server, uuid, password
+    if sys.platform == "darwin":
+        raise RuntimeError(
+            "COOKIECLOUD_PASSWORD not set.\n"
+            "Add it to ~/.agent-reach/.env:\n"
+            "  COOKIECLOUD_PASSWORD=your_password\n"
+            "Or set the environment variable."
+        )
+
+    try:
+        import keyring
+        pwd = keyring.get_password("agent-reach", "cookiecloud")
+        if pwd:
+            return server, uuid, pwd
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "COOKIECLOUD_PASSWORD not set.\n"
+        "Add it to ~/.agent-reach/.env:\n"
+        "  COOKIECLOUD_PASSWORD=your_password"
+    )
 
 
 def fetch_and_decrypt(server: str, uuid: str, password: str) -> Dict[str, List[Dict]]:
