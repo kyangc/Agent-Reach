@@ -139,6 +139,13 @@ def main():
     p_dl.add_argument("--output", "-o", default="",
         help="Output file/directory path")
 
+    # ── cookie-sync ──
+    p_sync = sub.add_parser("cookie-sync", help="Sync cookies from CookieCloud")
+    p_sync.add_argument("--platforms", default="",
+        help="Comma-separated platforms (twitter,xhs,bilibili,xueqiu,youtube). Default: all")
+    p_sync.add_argument("--force", action="store_true",
+        help="Force sync even if local cookies appear fresh")
+
     args = parser.parse_args()
 
     # Suppress loguru noise unless --verbose
@@ -176,6 +183,8 @@ def main():
         _cmd_search(args)
     elif args.command == "download":
         _cmd_download(args)
+    elif args.command == "cookie-sync":
+        _cmd_cookie_sync(args)
 
 
 # ── Command handlers ────────────────────────────────
@@ -628,6 +637,38 @@ def _cmd_download(args):
     print(result.stdout or result.stderr or "")
     if result.returncode != 0:
         sys.exit(result.returncode)
+
+
+def _cmd_cookie_sync(args):
+    """Sync cookies from CookieCloud to all configured platforms."""
+    from agent_reach.cookie_cloud import sync_cookies
+
+    platforms = None
+    if args.platforms:
+        platforms = [p.strip() for p in args.platforms.split(",") if p.strip()]
+
+    try:
+        results = sync_cookies(platforms=platforms, force=args.force)
+    except RuntimeError as e:
+        print(f"[X] {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if "_" in results and results["_"][0] == "error":
+        print(f"[X] {results['_'][1]}", file=sys.stderr)
+        sys.exit(1)
+
+    ok_count = sum(1 for v in results.values() if v[0] == "ok")
+    skip_count = sum(1 for v in results.values() if v[0] == "skip")
+    err_count = sum(1 for v in results.values() if v[0] == "error")
+
+    print(f"\nCookieCloud Sync Results:")
+    print(f"  ✅ {ok_count} synced")
+    print(f"  -- {skip_count} skipped")
+    print(f"  [X] {err_count} failed")
+
+    for name, (status, msg) in results.items():
+        prefix = "  ✅" if status == "ok" else "  --" if status == "skip" else "  [X]"
+        print(f"{prefix} {name}: {msg}")
 
 
 def _install_system_deps():
