@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -22,10 +23,22 @@ import yaml
 
 
 def _get_password() -> str:
-    """Get CookieCloud password from env or keyring."""
+    """Get CookieCloud password from env var.
+
+    On macOS, keyring backend is unreliable (triggers Keychain unlock dialogs)
+    so we only use the environment variable.
+    """
     pwd = os.environ.get("COOKIECLOUD_PASSWORD")
     if pwd:
         return pwd
+    # Skip keyring on macOS — the Keychain backend pops up login dialogs.
+    # Use environment variable instead: export COOKIECLOUD_PASSWORD=xxx
+    if sys.platform == "darwin":
+        raise RuntimeError(
+            "COOKIECLOUD_PASSWORD environment variable not set.\n"
+            "Run: export COOKIECLOUD_PASSWORD=macmini\n"
+            "(keyring disabled on macOS to avoid Keychain unlock dialogs)"
+        )
     try:
         import keyring
         pwd = keyring.get_password("agent-reach", "cookiecloud")
