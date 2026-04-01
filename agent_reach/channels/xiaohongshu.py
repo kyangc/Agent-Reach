@@ -126,6 +126,17 @@ class XiaoHongShuChannel(Channel):
         d = urlparse(url).netloc.lower()
         return "xiaohongshu.com" in d or "xhslink.com" in d
 
+    def read(self, url: str) -> str:
+        """Read a XHS note via xhs-cli, return raw JSON."""
+        xhs = shutil.which("xhs")
+        if not xhs:
+            raise RuntimeError("xhs-cli not installed. Run: pipx install xiaohongshu-cli")
+        result = subprocess.run(
+            [xhs, "read", url, "--json"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        return result.stdout or result.stderr or ""
+
     def check(self, config=None):
         xhs = shutil.which("xhs")
         if not xhs:

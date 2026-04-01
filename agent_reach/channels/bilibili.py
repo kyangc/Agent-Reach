@@ -35,6 +35,16 @@ class BilibiliChannel(Channel):
         d = urlparse(url).netloc.lower()
         return "bilibili.com" in d or "b23.tv" in d
 
+    def read(self, url: str) -> str:
+        """Dump video metadata as JSON via yt-dlp."""
+        if not shutil.which("yt-dlp"):
+            raise RuntimeError("yt-dlp not installed. Run: pip install yt-dlp")
+        result = subprocess.run(
+            ["yt-dlp", "--dump-json", "--no-download", url],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=60,
+        )
+        return (result.stdout or "") + (result.stderr or "")
+
     def check(self, config=None):
         if not shutil.which("yt-dlp"):
             return "off", "yt-dlp 未安装。安装：pip install yt-dlp"

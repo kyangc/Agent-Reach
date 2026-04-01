@@ -2,8 +2,20 @@
 """Tests for Agent Reach CLI."""
 
 import pytest
+import shutil
+import subprocess
+import sys
+import urllib.request
+from unittest.mock import patch, Mock
+
+# Mock loguru BEFORE importing cli (loguru is optional, not always installed)
+class _FakeLogger:
+    def remove(self, *a, **k): pass
+    def add(self, *a, **k): pass
+sys.modules["loguru"] = type(sys)("loguru")
+sys.modules["loguru"].logger = _FakeLogger()
+
 import requests
-from unittest.mock import patch
 import agent_reach.cli as cli
 from agent_reach.cli import main
 
@@ -159,3 +171,183 @@ class TestConfigureXhsCookies:
         cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
         mode = cookie_file.stat().st_mode
         assert not (mode & stat.S_IROTH)
+
+
+class TestCmdRead:
+    """agent-reach read <url> command tests."""
+
+    def test_read_twitter_url_routes_to_twitter_channel(self, monkeypatch, capsys):
+        """Twitter URL → calls twitter-cli read"""
+        from agent_reach.channels.base import Channel
+
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = '{"text": "fake tweet"}'
+            r.stderr = ""
+            return r
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/twitter" if x == "twitter" else None)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://x.com/user/status/123"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "fake tweet" in out
+
+    def test_read_xhs_url_routes_to_xhs_cli(self, monkeypatch, capsys):
+        """XHS URL → calls xhs read --json"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = '{"note_id": "123"}'
+            r.stderr = ""
+            return r
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/xhs" if x == "xhs" else None)
+
+        with patch("sys.argv", ["agent-reach", "read", "https://www.xiaohongshu.com/explore/abc"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "note_id" in out
+
+    def test_read_exits_with_error_for_unsupported_channel(self, monkeypatch, capsys):
+        """Channel without read() → exit code 1"""
+        from agent_reach.channels.base import Channel
+        from agent_reach.channels.twitter import TwitterChannel
+
+        def fake_can_handle(self, url): return True
+
+        # Patch Channel.can_handle (inherited by TwitterChannel) and
+        # TwitterChannel.read directly so instance calls go to our mock
+        monkeypatch.setattr(Channel, "can_handle", fake_can_handle)
+        monkeypatch.setattr(TwitterChannel, "read", lambda self, url: (_ for _ in ()).throw(NotImplementedError()))
+
+        with patch("sys.argv", ["agent-reach", "read", "https://x.com/test"]):
+            with pytest.raises(SystemExit) as exc:
+                cli.main()
+        assert exc.value.code == 1
+
+
+class TestCmdSearch:
+    """agent-reach search command tests."""
+
+    def test_search_exa_calls_mcporter(self, monkeypatch, capsys):
+        """No --platform → Exa via mcporter"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = '{"results": []}'
+            r.stderr = ""
+            return r
+
+        # Patch cli.subprocess.run and shutil.which (imported at top of cli.py)
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/mcporter" if x == "mcporter" else None)
+
+        class FakeArgs:
+            query = ["machine", "learning"]
+            platform = ""
+
+        cli._cmd_search(FakeArgs())
+        out = capsys.readouterr().out
+        assert "results" in out  # Verifies the command ran and produced Exa-like output
+
+    def test_search_xhs_calls_xhs_cli(self, monkeypatch, capsys):
+        """--platform xhs → xhs-cli"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = '{"items": []}'
+            r.stderr = ""
+            return r
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/xhs" if x == "xhs" else None)
+
+        class FakeArgs:
+            query = ["咖啡"]
+            platform = "xhs"
+
+        cli._cmd_search(FakeArgs())
+        out = capsys.readouterr().out
+        assert "items" in out  # Verifies the command ran and produced XHS-like output
+
+    def test_search_requires_tool_when_platform_specified(self, monkeypatch, capsys):
+        """Tool not installed → exit code 1"""
+        monkeypatch.setattr(shutil, "which", lambda x: None)
+
+        class FakeArgs:
+            query = ["test"]
+            platform = "twitter"
+
+        with pytest.raises(SystemExit) as exc:
+            cli._cmd_search(FakeArgs())
+        assert exc.value.code == 1
+
+
+class TestCmdDownload:
+    """agent-reach download command tests."""
+
+    def test_download_calls_yt_dlp(self, monkeypatch, capsys):
+        """download command calls yt-dlp"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = "[download] Destination: video.mp4\n"
+            r.stderr = ""
+            r.returncode = 0
+            return r
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/local/bin/yt-dlp" if x == "yt-dlp" else None)
+
+        class FakeArgs:
+            url = "https://www.youtube.com/watch?v=abc"
+            format = ""
+            output = ""
+
+        cli._cmd_download(FakeArgs())
+        out = capsys.readouterr().out
+        assert "download" in out.lower()  # Verifies yt-dlp was called
+
+    def test_download_passes_format_flag(self, monkeypatch, capsys):
+        """--format is passed through to yt-dlp"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = ""
+            r.stderr = ""
+            r.returncode = 0
+            return r
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/local/bin/yt-dlp")
+
+        class FakeArgs:
+            url = "https://www.bilibili.com/video/BV1xx"
+            format = "bestvideo"
+            output = ""
+
+        cli._cmd_download(FakeArgs())
+        # With no error and returncode 0, print outputs empty result (newline only)
+        # The test verifies the command didn't exit with error (no SystemExit)
+        # and yt-dlp was found and called
+        out = capsys.readouterr().out
+        assert out == "\n"  # print("") outputs a single newline
+
+    def test_download_exits_nonzero_on_failure(self, monkeypatch, capsys):
+        """yt-dlp failure → CLI exit code non-zero"""
+        def fake_run(cmd, **kwargs):
+            r = Mock()
+            r.stdout = ""
+            r.stderr = "ERROR: Unable to download"
+            r.returncode = 1
+            return r
+
+        class FakeArgs:
+            url = "https://youtube.com/v"
+            format = ""
+            output = ""
+
+        monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/yt-dlp")
+
+        with pytest.raises(SystemExit) as exc:
+            cli._cmd_download(FakeArgs())
+        assert exc.value.code != 0

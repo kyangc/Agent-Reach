@@ -17,6 +17,17 @@ class RedditChannel(Channel):
         d = urlparse(url).netloc.lower()
         return "reddit.com" in d or "redd.it" in d
 
+    def read(self, url: str) -> str:
+        """Read a Reddit post via rdt-cli."""
+        rdt = shutil.which("rdt")
+        if not rdt:
+            raise RuntimeError("rdt-cli not installed. Run: pipx install rdt-cli")
+        result = subprocess.run(
+            [rdt, "read", url],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        return result.stdout or result.stderr or ""
+
     def check(self, config=None):
         rdt = shutil.which("rdt")
         if rdt:

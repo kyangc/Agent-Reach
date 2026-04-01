@@ -60,6 +60,41 @@ class TwitterChannel(Channel):
         except Exception:
             return "warn", "twitter-cli 已安装但连接失败"
 
+    def read(self, url: str) -> str:
+        """Read a tweet via twitter-cli."""
+        twitter = shutil.which("twitter") or shutil.which("bird") or shutil.which("birdx")
+        if not twitter:
+            raise RuntimeError("twitter-cli not installed. Run: pipx install twitter-cli")
+
+        import os
+        auth_token = os.environ.get("TWITTER_AUTH_TOKEN")
+        ct0 = os.environ.get("TWITTER_CT0")
+        env = None
+        if auth_token and ct0:
+            env = {**os.environ.copy(), "TWITTER_AUTH_TOKEN": auth_token, "TWITTER_CT0": ct0}
+
+        tweet_id = self._extract_tweet_id(url)
+        result = subprocess.run(
+            [twitter, "read", tweet_id],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+            env=env,
+        )
+        return (result.stdout or "") + (result.stderr or "")
+
+    def _extract_tweet_id(self, url: str) -> str:
+        """Extract tweet ID from various Twitter URL formats."""
+        import re
+        patterns = [
+            r'/status/(\d+)',
+            r'twitter\.com/\w+/status/(\d+)',
+            r'x\.com/\w+/status/(\d+)',
+        ]
+        for pat in patterns:
+            m = re.search(pat, url)
+            if m:
+                return m.group(1)
+        raise ValueError(f"Could not extract tweet ID from: {url}")
+
     def _check_bird(self, binary: str):
         try:
             r = subprocess.run(

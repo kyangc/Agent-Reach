@@ -13,6 +13,8 @@ import sys
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import time
 
 from agent_reach import __version__
@@ -116,6 +118,27 @@ def main():
     # ── version ──
     sub.add_parser("version", help="Show version")
 
+    # ── read ──
+    p_read = sub.add_parser("read", help="Read content from a URL")
+    p_read.add_argument("url", help="URL to read")
+    p_read.add_argument("--raw", action="store_true",
+        help="Return raw output without formatting or summarization")
+
+    # ── search ──
+    p_search = sub.add_parser("search", help="Search across platforms")
+    p_search.add_argument("query", nargs="+", help="Search query")
+    p_search.add_argument("--platform", "-p", default="",
+        choices=["", "xhs", "twitter", "reddit", "github", "bilibili", "v2ex", "exa"],
+        help="Target platform (default: all platforms via Exa)")
+
+    # ── download ──
+    p_dl = sub.add_parser("download", help="Download video/audio from a URL")
+    p_dl.add_argument("url", help="URL to download")
+    p_dl.add_argument("--format", "-f", default="",
+        help="yt-dlp format spec (e.g. bestvideo, mp4)")
+    p_dl.add_argument("--output", "-o", default="",
+        help="Output file/directory path")
+
     args = parser.parse_args()
 
     # Suppress loguru noise unless --verbose
@@ -147,6 +170,12 @@ def main():
         _cmd_skill(args)
     elif args.command == "format":
         _cmd_format(args)
+    elif args.command == "read":
+        _cmd_read(args)
+    elif args.command == "search":
+        _cmd_search(args)
+    elif args.command == "download":
+        _cmd_download(args)
 
 
 # ── Command handlers ────────────────────────────────
@@ -457,6 +486,148 @@ def _cmd_format(args):
 
         cleaned = format_xhs_result(data)
         print(json.dumps(cleaned, ensure_ascii=False, indent=2))
+
+
+def _cmd_read(args):
+    """Route URL to appropriate channel read() method."""
+    from agent_reach.doctor import get_all_channels
+
+    url = args.url
+
+    channels = get_all_channels()
+    for ch in channels:
+        if ch.can_handle(url):
+            if not hasattr(ch, "read") or not callable(getattr(ch, "read", None)):
+                print(f"[!] {ch.name} channel does not support direct URL reading.", file=sys.stderr)
+                sys.exit(1)
+            try:
+                result = ch.read(url)
+                print(result)
+            except NotImplementedError:
+                print(f"[!] {ch.name} channel does not support direct URL reading.", file=sys.stderr)
+                sys.exit(1)
+            except RuntimeError as e:
+                print(f"[X] {e}", file=sys.stderr)
+                sys.exit(1)
+            return
+
+    # Fallback: Web (Jina Reader)
+    print(f"[*] No specific channel for this URL, falling back to Web (Jina Reader)...", file=sys.stderr)
+    from agent_reach.channels.web import WebChannel
+    print(WebChannel().read(url))
+
+
+def _cmd_search(args):
+    """Search across platforms."""
+    query = " ".join(args.query)
+    platform = args.platform or "exa"
+
+    if platform == "exa":
+        mcporter = shutil.which("mcporter")
+        if not mcporter:
+            print("[X] mcporter not installed. Run: npm install -g mcporter", file=sys.stderr)
+            sys.exit(1)
+        result = subprocess.run(
+            [mcporter, "call", f"exa.search(query: '{query}', numResults: 10)"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "xhs":
+        xhs = shutil.which("xhs")
+        if not xhs:
+            print("[X] xhs-cli not installed. Run: pipx install xiaohongshu-cli", file=sys.stderr)
+            sys.exit(1)
+        result = subprocess.run(
+            [xhs, "search", query, "--json"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "twitter":
+        twitter = shutil.which("twitter")
+        if not twitter:
+            print("[X] twitter-cli not installed. Run: pipx install twitter-cli", file=sys.stderr)
+            sys.exit(1)
+        result = subprocess.run(
+            [twitter, "search", query],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "reddit":
+        rdt = shutil.which("rdt")
+        if not rdt:
+            print("[X] rdt-cli not installed. Run: pipx install rdt-cli", file=sys.stderr)
+            sys.exit(1)
+        result = subprocess.run(
+            [rdt, "search", query],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "github":
+        gh = shutil.which("gh")
+        if not gh:
+            print("[X] gh CLI not installed. Run: brew install gh", file=sys.stderr)
+            sys.exit(1)
+        result = subprocess.run(
+            ["gh", "search", "code", query, "--limit", "20"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "bilibili":
+        bili = shutil.which("bili")
+        if bili:
+            result = subprocess.run(
+                [bili, "search", query],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+            )
+        else:
+            mcporter = shutil.which("mcporter")
+            if not mcporter:
+                print("[X] Neither bili-cli nor mcporter available.", file=sys.stderr)
+                sys.exit(1)
+            result = subprocess.run(
+                [mcporter, "call", f"exa.search(query: '{query} site:bilibili.com', numResults: 10)"],
+                capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+            )
+        print(result.stdout or result.stderr or "")
+
+    elif platform == "v2ex":
+        from agent_reach.channels.v2ex import V2EXChannel
+        import json
+        ch = V2EXChannel()
+        try:
+            results = ch.search(query)
+            print(json.dumps(results, ensure_ascii=False, indent=2))
+        except Exception as e:
+            print(f"[X] V2EX search error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+
+def _cmd_download(args):
+    """Download video/audio via yt-dlp."""
+    url = args.url
+    if not shutil.which("yt-dlp"):
+        print("[X] yt-dlp not installed. Run: pip install yt-dlp", file=sys.stderr)
+        sys.exit(1)
+
+    cmd = ["yt-dlp"]
+    if args.format:
+        cmd += ["-f", args.format]
+    if args.output:
+        cmd += ["-o", args.output]
+    cmd.append(url)
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True, encoding="utf-8", errors="replace", timeout=600,
+    )
+    print(result.stdout or result.stderr or "")
+    if result.returncode != 0:
+        sys.exit(result.returncode)
 
 
 def _install_system_deps():

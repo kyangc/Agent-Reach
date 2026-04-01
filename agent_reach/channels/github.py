@@ -16,6 +16,54 @@ class GitHubChannel(Channel):
         from urllib.parse import urlparse
         return "github.com" in urlparse(url).netloc.lower()
 
+    def read(self, url: str) -> str:
+        """Read a GitHub repo/file/issue/PR via gh CLI."""
+        gh = shutil.which("gh")
+        if not gh:
+            raise RuntimeError("gh CLI not installed. Run: brew install gh")
+
+        parsed = self._parse_github_url(url)
+        result = subprocess.run(
+            self._gh_command(parsed),
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        return (result.stdout or "") + (result.stderr or "")
+
+    def _parse_github_url(self, url: str) -> dict:
+        """Parse GitHub URL to dict with type, owner, repo, and path/number."""
+        from urllib.parse import urlparse
+        import re
+
+        parsed = urlparse(url)
+        path = parsed.path.strip("/").split("/")
+        if len(path) < 2:
+            raise ValueError(f"Invalid GitHub URL: {url}")
+
+        owner, repo = path[0], path[1].rstrip(".git")
+
+        if len(path) == 2:
+            return {"type": "repo", "owner": owner, "repo": repo}
+        elif len(path) == 4 and path[2] in ("pull", "issues"):
+            return {"type": path[2], "owner": owner, "repo": repo, "number": path[3]}
+        elif len(path) >= 5 and path[2] == "blob":
+            return {"type": "file", "owner": owner, "repo": repo, "path": "/".join(path[4:])}
+        else:
+            return {"type": "repo", "owner": owner, "repo": repo}
+
+    def _gh_command(self, parsed: dict) -> list:
+        """Build gh CLI command from parsed URL dict."""
+        t = parsed["type"]
+        owner, repo = parsed["owner"], parsed["repo"]
+        if t == "repo":
+            return ["gh", "repo", "view", f"{owner}/{repo}"]
+        elif t == "issues":
+            return ["gh", "issue", "view", parsed["number"], "--repo", f"{owner}/{repo}"]
+        elif t == "pull":
+            return ["gh", "pr", "view", parsed["number"], "--repo", f"{owner}/{repo}"]
+        elif t == "file":
+            return ["gh", "api", f"/repos/{owner}/{repo}/contents/{parsed['path']}"]
+        return ["gh", "repo", "view", f"{owner}/{repo}"]
+
     def check(self, config=None):
         gh = shutil.which("gh")
         if not gh:
