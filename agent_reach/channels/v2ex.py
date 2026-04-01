@@ -32,6 +32,34 @@ class V2EXChannel(Channel):
         d = urlparse(url).netloc.lower()
         return _domain_matches(d, "v2ex.com")
 
+    def read(self, url: str) -> str:
+        """Read a V2EX topic by URL, returns title + content + replies."""
+        import re, time
+        # Extract topic ID from URL like https://v2ex.com/t/1202783
+        m = re.search(r"/t/(\d+)", url)
+        if not m:
+            raise ValueError(f"Cannot extract topic ID from V2EX URL: {url}")
+        topic_id = int(m.group(1))
+        topic = self.get_topic(topic_id)
+
+        lines = []
+        lines.append(f"# {topic['title']}")
+        lines.append(f"URL: https://v2ex.com/t/{topic_id}")
+        lines.append(f"节点: {topic['node_title']} | 作者: {topic['author']} | 回复数: {topic['replies_count']}")
+        lines.append("")
+        if topic.get("content"):
+            lines.append(f"## 正文\n{topic['content']}")
+        lines.append("")
+        replies = topic.get("replies") or []
+        if replies:
+            lines.append(f"## 回复 ({len(replies)} 条)")
+            for i, r in enumerate(replies, 1):
+                created = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.get("created", 0)))
+                lines.append(f"### {i}. {r['author']} ({created})")
+                lines.append(r.get("content", ""))
+                lines.append("")
+        return "\n".join(lines)
+
     # ------------------------------------------------------------------ #
     # Health check
     # ------------------------------------------------------------------ #

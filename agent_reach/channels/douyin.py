@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Douyin (抖音) — check if mcporter + douyin-mcp-server is available."""
 
+import json
 import shutil
 import subprocess
 from .base import Channel, _domain_matches
@@ -16,6 +17,53 @@ class DouyinChannel(Channel):
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
         return _domain_matches(d, "douyin.com") or _domain_matches(d, "iesdouyin.com")
+
+    def read(self, url: str) -> str:
+        """Parse a Douyin video via douyin-mcp-server (mcporter).
+
+        Accepts any Douyin URL format: share links (v.douyin.com),
+        direct video URLs (douyin.com/video/xxx), etc.
+        """
+        mcporter = shutil.which("mcporter")
+        if not mcporter:
+            raise RuntimeError(
+                "Douyin MCP not configured. Install:\n"
+                "  1. pip install douyin-mcp-server\n"
+                "  2. Start server: douyin-mcp-server (runs on port 18070)\n"
+                "  3. mcporter config add douyin http://localhost:18070/mcp"
+            )
+
+        r = subprocess.run(
+            [mcporter, "call", "douyin.parse_douyin_video_info"],
+            input=json.dumps({"share_link": url}),
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError(
+                f"Douyin MCP call failed: {r.stderr or r.stdout}\n"
+                "Ensure douyin-mcp-server is running on port 18070."
+            )
+        try:
+            result = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Douyin MCP returned invalid JSON: {r.stdout[:200]}")
+
+        # Format nicely
+        video_info = result if isinstance(result, dict) else {}
+        lines = []
+        if video_info.get("title"):
+            lines.append(f"# {video_info['title']}")
+        if video_info.get("desc"):
+            lines.append(f"描述: {video_info['desc']}")
+        if video_info.get("author"):
+            lines.append(f"作者: {video_info['author']}")
+        if video_info.get("download_url"):
+            lines.append(f"无水印下载: {video_info['download_url']}")
+        if video_info.get("cover"):
+            lines.append(f"封面: {video_info['cover']}")
+        if not lines:
+            lines.append(str(video_info))
+        return "\n".join(lines)
 
     def check(self, config=None):
         mcporter = shutil.which("mcporter")

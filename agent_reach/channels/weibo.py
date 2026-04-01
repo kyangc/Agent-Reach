@@ -3,7 +3,11 @@
 
 import shutil
 import subprocess
+import urllib.request
 from .base import Channel, _domain_matches
+
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+_TIMEOUT = 30
 
 
 class WeiboChannel(Channel):
@@ -16,6 +20,16 @@ class WeiboChannel(Channel):
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
         return _domain_matches(d, "weibo.com") or _domain_matches(d, "weibo.cn")
+
+    def read(self, url: str) -> str:
+        """Read a Weibo post via Jina Reader."""
+        jina_url = f"https://r.jina.ai/{url}"
+        req = urllib.request.Request(
+            jina_url,
+            headers={"User-Agent": _UA, "Accept": "text/plain"},
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.read().decode("utf-8")
 
     def check(self, config=None):
         mcporter = shutil.which("mcporter")

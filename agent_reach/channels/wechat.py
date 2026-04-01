@@ -5,8 +5,10 @@ Read:   Exa crawling (primary) / Camoufox stealth browser (optional)
 Search: Exa web_search with includeDomains mp.weixin.qq.com
 """
 
+import json
 import shutil
 import subprocess
+import urllib.request
 from .base import Channel, _domain_matches
 
 
@@ -34,6 +36,30 @@ class WeChatChannel(Channel):
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
         return _domain_matches(d, "mp.weixin.qq.com") or _domain_matches(d, "weixin.qq.com")
+
+    def read(self, url: str) -> str:
+        """Read a WeChat article via Exa MCP crawling or Jina Reader fallback."""
+        mcporter = shutil.which("mcporter")
+        if mcporter:
+            try:
+                r = subprocess.run(
+                    [mcporter, "call",
+                     f"exa.crawling_exa(urls: [{json.dumps(url)}], maxCharacters: 15000)"],
+                    capture_output=True, encoding="utf-8", errors="replace", timeout=30,
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip()
+            except Exception:
+                pass
+
+        # Fallback: Jina Reader
+        jina_url = f"https://r.jina.ai/{url}"
+        req = urllib.request.Request(
+            jina_url,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "text/plain"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8")
 
     def check(self, config=None):
         has_exa = _exa_available()

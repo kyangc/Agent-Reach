@@ -3,7 +3,11 @@
 
 import shutil
 import subprocess
+import urllib.request
 from .base import Channel, _domain_matches
+
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+_TIMEOUT = 30
 
 
 class LinkedInChannel(Channel):
@@ -15,6 +19,16 @@ class LinkedInChannel(Channel):
     def can_handle(self, url: str) -> bool:
         from urllib.parse import urlparse
         return _domain_matches(urlparse(url).netloc.lower(), "linkedin.com")
+
+    def read(self, url: str) -> str:
+        """Read a LinkedIn page via Jina Reader (public pages only)."""
+        jina_url = f"https://r.jina.ai/{url}"
+        req = urllib.request.Request(
+            jina_url,
+            headers={"User-Agent": _UA, "Accept": "text/plain"},
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            return resp.read().decode("utf-8")
 
     def check(self, config=None):
         mcporter = shutil.which("mcporter")
