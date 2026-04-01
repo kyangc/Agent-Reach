@@ -2,7 +2,7 @@
 
 > 日期：2026-04-01
 > 目标版本：v1.5.0
-> 状态：草稿，待评审
+> 状态：已评审（所有 TODO 已确认）
 
 ---
 
@@ -196,12 +196,12 @@ cookiecloud:
   server: https://router.kyangc.com:1206
   uuid: macmini
   password_env: COOKIECLOUD_PASSWORD   # 从环境变量读取密码
-  sync_interval_hours: 12
   platforms:
     - twitter
     - xhs
     - bilibili
     - xueqiu
+    - youtube
 ```
 
 **Password 管理**：
@@ -226,9 +226,19 @@ cookiecloud:
 | 平台 | 写入位置 | 写入格式 | 转换函数 |
 |------|---------|---------|---------|
 | twitter | `~/.config/bird/credentials.env` | `AUTH_TOKEN=xxx\nCT0=xxx` | `_to_bird_env()` |
-| xhs | `~/.xiaohongshu-cli/cookies.json` | `{"a1": "...", "web_session": "..."}` | `_to_xhs_cli()` |
+| xhs | `~/.xiaohongshu-cli/cookies.json` | `{"a1": "...", "web_session": "...", "webId": "..."}` | `_to_xhs_cli()` |
 | bilibili | `~/.agent-reach/config.yaml` | `bilibili_sessdata`, `bilibili_csrf` | `_to_config_yaml("bilibili")` |
 | xueqiu | `~/.agent-reach/config.yaml` | `xueqiu_cookie` | `_to_config_yaml("xueqiu")` |
+| youtube | `~/.agent-reach/youtube_cookies.txt` | Netscape cookie 格式 | `_to_netscape()` |
+
+**`_to_bird_env()` 实现**：
+```python
+# CookieCloud domain: .x.com
+# 提取 auth_token → AUTH_TOKEN
+# 提取 ct0 → CT0
+# 写入 ~/.config/bird/credentials.env
+# 设置 0o600 权限
+```
 
 **`_to_xhs_cli()` 实现**：
 ```python
@@ -238,29 +248,25 @@ cookiecloud:
 # 设置 0o600 权限
 ```
 
-**`_to_bird_env()` 实现**：
+**`_to_netscape()` 实现（YouTube）**：
 ```python
-# CookieCloud domain: .x.com / twitter.com
-# 提取 auth_token → AUTH_TOKEN
-# 提取 ct0 → CT0
-# 写入 ~/.config/bird/credentials.env
-# 设置 0o600 权限
+# CookieCloud domain: .youtube.com
+# 写入 Netscape cookie 格式到 ~/.agent-reach/youtube_cookies.txt
+# yt-dlp 优先使用 --cookies-from-browser，CookieCloud 文件作为 fallback
+# 缺少 __Host-* 强认证 cookie 时打印 WARNING，不报错
 ```
+
+> **YouTube 说明**：CookieCloud 中的 YouTube cookie 缺少 `__Host-*` 前缀的强认证 cookie，
+> 仅能覆盖普通视频。对于年龄限制/会员内容，仍需 `--cookies-from-browser Chrome`。
+> 本同步为 best-effort，缺关键 cookie 时仅打印 WARNING，不中断流程。
 
 ### 5.6 CLI 命令
 
 ```
-agent-reach cookie-sync                  # 从 CookieCloud 拉取并同步所有平台
+agent-reach cookie-sync                  # 从 CookieCloud 拉取并同步所有已启用平台
 agent-reach cookie-sync --platforms=xhs,twitter  # 仅同步指定平台
 agent-reach cookie-sync --force          # 强制覆盖，不检查 TTL
-agent-reach cookie-sync --daemon         # 配置定时任务（crontab/launchd）
-agent-reach cookie-sync --show           # 仅显示 CookieCloud 中的 cookie，不写入
 ```
-
-**`--daemon` 实现**：
-- macOS：写入 `~/Library/LaunchAgents/com.agent-reach.cookie-sync.plist`
-- Linux：写入 `crontab` 条目（每 N 小时执行一次）
-- 打印操作结果，不在后台常驻进程
 
 ### 5.7 Doctor/Watch 集成
 
@@ -320,8 +326,8 @@ agent-reach configure cookiecloud --show         # 显示当前 CookieCloud 配�
 
 ## 八、TODO / 待确认
 
-- [ ] `config/mcporter.json` 的 `xiaohongshu` 条目：移除还是保留 deprecated 注释？
-- [ ] YouTube cookie 写入目标路径？yt-dlp `--cookies-from-browser` 是否需要 cookie 文件？
-- [ ] CookieCloud 中 YouTube 和 Weibo 的 domain 格式？需实测确认
-- [ ] `--daemon` 定时任务间隔：默认 12 小时是否合适？
-- [ ] `cookie-sync --show` 是否需要支持格式化输出（JSON/YAML）？
+- [x] `config/mcporter.json` 的 `xiaohongshu` 条目：确认移除
+- [x] YouTube cookie：写入 `~/.agent-reach/youtube_cookies.txt`（Netscape 格式），best-effort 模式（无 `__Host-*` 强认证 cookie 时打印 WARNING）
+- [x] `--daemon` 定时任务：不实现，用户确认无此需求
+- [x] `cookie-sync --show`：不需要，用户确认仅需更新本地文件
+- [x] Weibo / GitHub：保持现状（MCP/CLI 自管，CookieCloud 有数据但暂不同步）
