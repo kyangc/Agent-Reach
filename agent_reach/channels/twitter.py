@@ -67,8 +67,15 @@ class TwitterChannel(Channel):
             raise RuntimeError("twitter-cli not installed. Run: pipx install twitter-cli")
 
         import os
+        # Priority: env vars > config.yaml (written by CookieCloud sync)
         auth_token = os.environ.get("TWITTER_AUTH_TOKEN")
         ct0 = os.environ.get("TWITTER_CT0")
+        if not auth_token or not ct0:
+            from agent_reach.config import Config
+            cfg = Config()
+            auth_token = auth_token or cfg.get("twitter_auth_token")
+            ct0 = ct0 or cfg.get("twitter_ct0")
+
         env = None
         if auth_token and ct0:
             env = {**os.environ.copy(), "TWITTER_AUTH_TOKEN": auth_token, "TWITTER_CT0": ct0}
