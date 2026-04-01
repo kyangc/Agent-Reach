@@ -2,6 +2,7 @@
 """YouTube — check if yt-dlp is available with JS runtime."""
 
 import shutil
+import subprocess
 
 from agent_reach.utils.paths import get_ytdlp_config_path, render_ytdlp_fix_command
 from agent_reach.utils.text import read_utf8_text
