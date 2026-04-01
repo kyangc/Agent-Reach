@@ -508,14 +508,12 @@ def _cmd_read(args):
     for ch in channels:
         if ch.can_handle(url):
             if not hasattr(ch, "read") or not callable(getattr(ch, "read", None)):
-                print(f"[!] {ch.name} channel does not support direct URL reading.", file=sys.stderr)
-                sys.exit(1)
+                continue  # skip channels that can't read — allow Web fallback
             try:
                 result = ch.read(url)
                 print(result)
             except NotImplementedError:
-                print(f"[!] {ch.name} channel does not support direct URL reading.", file=sys.stderr)
-                sys.exit(1)
+                continue  # skip and try next channel
             except RuntimeError as e:
                 print(f"[X] {e}", file=sys.stderr)
                 sys.exit(1)
