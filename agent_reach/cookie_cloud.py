@@ -140,6 +140,9 @@ def sync_cookies(
     cfg = _load_config()
     cc_cfg = cfg.get("cookiecloud", {}) or {}
 
+    # Load .env so COOKIECLOUD_PASSWORD is available in os.environ
+    _load_dotenv()
+
     # Auto-enable if COOKIECLOUD_PASSWORD is set (no manual configure needed)
     if os.environ.get("COOKIECLOUD_PASSWORD") and not cc_cfg.get("enabled"):
         cc_cfg["enabled"] = True
