@@ -153,16 +153,45 @@ class TestSyncYouTube:
         assert "WARNING" in msg or "__Host-" in msg
 
 
-class TestFetchAndDecrypt:
-    """Password retrieval tests."""
+class TestGetCcConfig:
+    """_get_cc_config() tests: server, uuid, password from env / config / defaults."""
 
-    def test_raises_when_password_missing(self):
+    def test_raises_when_password_missing(self, monkeypatch):
+        """No COOKIECLOUD_PASSWORD → raises RuntimeError."""
         import agent_reach.cookie_cloud as cc
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(RuntimeError, match="COOKIECLOUD_PASSWORD"):
-                cc._get_password()
+        monkeypatch.delenv("COOKIECLOUD_PASSWORD", raising=False)
+        monkeypatch.delenv("COOKIECLOUD_SERVER", raising=False)
+        monkeypatch.delenv("COOKIECLOUD_UUID", raising=False)
+        with pytest.raises(RuntimeError, match="COOKIECLOUD_PASSWORD"):
+            cc._get_cc_config()
 
-    def test_uses_env_password(self):
+    def test_uses_env_password(self, monkeypatch):
+        """COOKIECLOUD_PASSWORD env var is returned as the password."""
         import agent_reach.cookie_cloud as cc
-        with patch.dict("os.environ", {"COOKIECLOUD_PASSWORD": "env_secret"}):
-            assert cc._get_password() == "env_secret"
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "env_secret")
+        monkeypatch.delenv("COOKIECLOUD_SERVER", raising=False)
+        monkeypatch.delenv("COOKIECLOUD_UUID", raising=False)
+        server, uuid, password = cc._get_cc_config()
+        assert password == "env_secret"
+
+    def test_env_server_overrides_default(self, monkeypatch):
+        """COOKIECLOUD_SERVER env var overrides the hardcoded default."""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "x")
+        monkeypatch.setenv("COOKIECLOUD_SERVER", "https://custom.server:9999")
+        monkeypatch.delenv("COOKIECLOUD_UUID", raising=False)
+        server, uuid, password = cc._get_cc_config()
+        assert server == "https://custom.server:9999"
+        assert uuid == "macmini"  # falls back to default
+        assert password == "x"
+
+    def test_env_uuid_overrides_default(self, monkeypatch):
+        """COOKIECLOUD_UUID env var overrides the hardcoded default."""
+        import agent_reach.cookie_cloud as cc
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "x")
+        monkeypatch.delenv("COOKIECLOUD_SERVER", raising=False)
+        monkeypatch.setenv("COOKIECLOUD_UUID", "custom-uuid")
+        server, uuid, password = cc._get_cc_config()
+        assert server == "https://router.kyangc.com:1206"  # default
+        assert uuid == "custom-uuid"
+        assert password == "x"

@@ -4,9 +4,10 @@
 Fetches cookies from CookieCloud server, decrypts them, and writes
 to each platform's native storage location.
 
-Server: https://router.kyangc.com:1206
-UUID:   macmini
-Password: from COOKIECLOUD_PASSWORD env var (or keyring fallback)
+Config priority: env var > config.yaml > hardcoded defaults
+  COOKIECLOUD_PASSWORD  (required)
+  COOKIECLOUD_SERVER    (default: https://router.kyangc.com:1206)
+  COOKIECLOUD_UUID      (default: macmini)
 """
 
 from __future__ import annotations
@@ -21,36 +22,51 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+_CC_DEFAULTS = {
+    "server": "https://router.kyangc.com:1206",
+    "uuid": "macmini",
+}
 
-def _get_password() -> str:
-    """Get CookieCloud password from env var.
 
-    On macOS, keyring backend is unreliable (triggers Keychain unlock dialogs)
-    so we only use the environment variable.
+def _get_cc_config() -> Tuple[str, str, str]:
+    """Return (server, uuid, password) from env vars, config.yaml, or defaults.
+
+    Priority: env var > config.yaml > hardcoded default
     """
+    # Load config
+    cfg = _load_config()
+    cc_cfg = cfg.get("cookiecloud", {}) or {}
+
+    # Server
+    server = os.environ.get("COOKIECLOUD_SERVER") or cc_cfg.get("server") or _CC_DEFAULTS["server"]
+
+    # UUID
+    uuid = os.environ.get("COOKIECLOUD_UUID") or cc_cfg.get("uuid") or _CC_DEFAULTS["uuid"]
+
+    # Password
     pwd = os.environ.get("COOKIECLOUD_PASSWORD")
     if pwd:
-        return pwd
-    # Skip keyring on macOS — the Keychain backend pops up login dialogs.
-    # Use environment variable instead: export COOKIECLOUD_PASSWORD=xxx
-    if sys.platform == "darwin":
+        password = pwd
+    elif sys.platform == "darwin":
         raise RuntimeError(
             "COOKIECLOUD_PASSWORD environment variable not set.\n"
-            "Run: export COOKIECLOUD_PASSWORD=macmini\n"
+            "Run: export COOKIECLOUD_PASSWORD=<your_password>\n"
             "(keyring disabled on macOS to avoid Keychain unlock dialogs)"
         )
-    try:
-        import keyring
-        pwd = keyring.get_password("agent-reach", "cookiecloud")
-        if pwd:
-            return pwd
-    except Exception:
-        pass
-    raise RuntimeError(
-        "CookieCloud password not set. "
-        "Set the COOKIECLOUD_PASSWORD environment variable, or run:\n"
-        "  python -c \"import keyring; keyring.set_password('agent-reach', 'cookiecloud', 'YOUR_PASSWORD')\""
-    )
+    else:
+        try:
+            import keyring
+            password = keyring.get_password("agent-reach", "cookiecloud")
+        except Exception:
+            password = None
+        if not password:
+            raise RuntimeError(
+                "CookieCloud password not set. "
+                "Set the COOKIECLOUD_PASSWORD environment variable, or run:\n"
+                "  python -c \"import keyring; keyring.set_password('agent-reach', 'cookiecloud', 'YOUR_PASSWORD')\""
+            )
+
+    return server, uuid, password
 
 
 def fetch_and_decrypt(server: str, uuid: str, password: str) -> Dict[str, List[Dict]]:
@@ -77,33 +93,58 @@ def sync_cookies(
 ) -> Dict[str, Tuple[str, str]]:
     """Sync cookies from CookieCloud to all configured platforms.
 
+    Config priority (per field): explicit arg > env var > config.yaml > hardcoded default
+
     Args:
         platforms: List of platforms to sync (None = all enabled in config)
         force:     If True, always sync. If False, check local TTL first.
-        server:    Override CookieCloud server URL
+        server:    Override server URL
         uuid:      Override UUID
-        password:  Override password (bypasses _get_password)
+        password:  Override password (bypasses env/config lookup)
 
     Returns:
         Dict mapping platform name to (status, message)
         status: "ok" | "skip" | "error"
     """
-    # Load config
     cfg = _load_config()
     cc_cfg = cfg.get("cookiecloud", {}) or {}
+
+    # Auto-enable if COOKIECLOUD_PASSWORD is set (no manual configure needed)
+    if os.environ.get("COOKIECLOUD_PASSWORD") and not cc_cfg.get("enabled"):
+        cc_cfg["enabled"] = True
+        cfg.data["cookiecloud"] = cc_cfg
+        cfg.save()
 
     if not cc_cfg.get("enabled"):
         return {"_": ("error", "CookieCloud is not enabled. Run: agent-reach configure cookiecloud")}
 
-    server = server or cc_cfg.get("server", "https://router.kyangc.com:1206")
-    uuid_ = uuid or cc_cfg.get("uuid", "macmini")
-    password = password or _get_password()
+    # Explicit args override env vars
+    if server is None:
+        server = os.environ.get("COOKIECLOUD_SERVER") or cc_cfg.get("server") or _CC_DEFAULTS["server"]
+    if uuid is None:
+        uuid = os.environ.get("COOKIECLOUD_UUID") or cc_cfg.get("uuid") or _CC_DEFAULTS["uuid"]
+    if password is None:
+        password = os.environ.get("COOKIECLOUD_PASSWORD")
+        if not password:
+            if sys.platform == "darwin":
+                raise RuntimeError("COOKIECLOUD_PASSWORD environment variable not set.")
+            try:
+                import keyring
+                password = keyring.get_password("agent-reach", "cookiecloud")
+            except Exception:
+                password = None
+            if not password:
+                raise RuntimeError(
+                    "CookieCloud password not set. "
+                    "Set the COOKIECLOUD_PASSWORD environment variable, or run:\n"
+                    "  python -c \"import keyring; keyring.set_password('agent-reach', 'cookiecloud', 'YOUR_PASSWORD')\""
+                )
+
     enabled_platforms = set(cc_cfg.get("platforms", []))
     target_platforms = set(platforms) if platforms else enabled_platforms
 
-    # Fetch and decrypt
     try:
-        cookie_data = fetch_and_decrypt(server, uuid_, password)
+        cookie_data = fetch_and_decrypt(server, uuid, password)
     except Exception as e:
         return {"_": ("error", f"Failed to fetch from CookieCloud: {e}")}
 
