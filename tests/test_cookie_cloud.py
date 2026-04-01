@@ -162,6 +162,7 @@ class TestGetCcConfig:
         monkeypatch.delenv("COOKIECLOUD_PASSWORD", raising=False)
         monkeypatch.delenv("COOKIECLOUD_SERVER", raising=False)
         monkeypatch.delenv("COOKIECLOUD_UUID", raising=False)
+        monkeypatch.setattr(cc, "_load_dotenv", lambda: None)
         with pytest.raises(RuntimeError, match="COOKIECLOUD_PASSWORD"):
             cc._get_cc_config()
 

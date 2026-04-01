@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from .base import Channel
+from .base import Channel, _domain_matches
 
 _UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -155,7 +155,7 @@ class XueqiuChannel(Channel):
 
     def can_handle(self, url: str) -> bool:
         d = urllib.parse.urlparse(url).netloc.lower()
-        return "xueqiu.com" in d
+        return _domain_matches(d, "xueqiu.com")
 
     # ------------------------------------------------------------------ #
     # Health check

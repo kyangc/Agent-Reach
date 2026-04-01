@@ -4,7 +4,7 @@
 import json
 import urllib.request
 from typing import Any
-from .base import Channel
+from .base import Channel, _domain_matches
 
 _UA = "agent-reach/1.0"
 _TIMEOUT = 10
@@ -30,7 +30,7 @@ class V2EXChannel(Channel):
     def can_handle(self, url: str) -> bool:
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
-        return "v2ex.com" in d
+        return _domain_matches(d, "v2ex.com")
 
     # ------------------------------------------------------------------ #
     # Health check

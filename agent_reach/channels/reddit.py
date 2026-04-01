@@ -3,7 +3,7 @@
 
 import shutil
 import subprocess
-from .base import Channel
+from .base import Channel, _domain_matches
 
 
 class RedditChannel(Channel):
@@ -15,7 +15,7 @@ class RedditChannel(Channel):
     def can_handle(self, url: str) -> bool:
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
-        return "reddit.com" in d or "redd.it" in d
+        return _domain_matches(d, "reddit.com") or _domain_matches(d, "redd.it")
 
     def read(self, url: str) -> str:
         """Read a Reddit post via rdt-cli."""

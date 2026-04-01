@@ -15,6 +15,14 @@ from abc import ABC, abstractmethod
 from typing import List, Tuple
 
 
+def _domain_matches(netloc: str, domain: str) -> bool:
+    """Strict domain match: equals domain or ends with .domain.
+
+    Avoids substring false-positives like 'x.com' in 'v2ex.com'.
+    """
+    return netloc == domain or netloc.endswith(f".{domain}")
+
+
 class Channel(ABC):
     """Base class for all channels."""
 

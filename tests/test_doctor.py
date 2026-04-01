@@ -126,16 +126,24 @@ class TestDoctorCookieCloudIntegration:
 
     def test_sync_triggered_when_twitter_cookie_missing(self, tmp_config, monkeypatch):
         """_should_sync_from_cookiecloud returns True when twitter auth_token is missing."""
-        # _should_sync_from_cookiecloud creates its own Config() internally.
-        # Mock Config so it reads from tmp_config (which has no twitter_auth_token)
-        # but has cookiecloud enabled.
-        class FakeConfig:
+        # Block .env file from polluting test env (machine has COOKIECLOUD_PASSWORD in ~/.agent-reach/.env)
+        import agent_reach.cookie_cloud as cc_module
+        monkeypatch.setattr(cc_module, "_load_dotenv", lambda: None)
+
+        # Patch the internal Config usage: twitter has no auth_token → triggers sync
+        class FakeConfigWithCookiecloud:
             data = {"cookiecloud": {"enabled": True}}
             def get(self, key, default=None):
                 return self.data.get(key, default)
 
-        monkeypatch.setattr(doctor, "Config", lambda: FakeConfig())
-        # cfg has no twitter_auth_token set → should trigger sync
+        # _should_sync_from_cookiecloud imports Config internally, so patch both locations
+        monkeypatch.setattr(doctor, "Config", lambda: FakeConfigWithCookiecloud())
+        monkeypatch.setattr("agent_reach.config.Config", lambda: FakeConfigWithCookiecloud())
+
+        # Also patch the cc_module's internal import (it has its own import chain)
+        import agent_reach.config as real_config_module
+        monkeypatch.setattr(real_config_module, "Config", lambda: FakeConfigWithCookiecloud())
+
         result = doctor._should_sync_from_cookiecloud("twitter")
         assert result is True
 

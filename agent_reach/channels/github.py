@@ -3,7 +3,7 @@
 
 import shutil
 import subprocess
-from .base import Channel
+from .base import Channel, _domain_matches
 
 
 class GitHubChannel(Channel):
@@ -14,7 +14,7 @@ class GitHubChannel(Channel):
 
     def can_handle(self, url: str) -> bool:
         from urllib.parse import urlparse
-        return "github.com" in urlparse(url).netloc.lower()
+        return _domain_matches(urlparse(url).netloc.lower(), "github.com")
 
     def read(self, url: str) -> str:
         """Read a GitHub repo/file/issue/PR via gh CLI."""

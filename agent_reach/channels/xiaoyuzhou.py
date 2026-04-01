@@ -4,7 +4,7 @@
 import os
 import shutil
 from agent_reach.config import Config
-from .base import Channel
+from .base import Channel, _domain_matches
 
 
 class XiaoyuzhouChannel(Channel):
@@ -16,7 +16,7 @@ class XiaoyuzhouChannel(Channel):
     def can_handle(self, url: str) -> bool:
         from urllib.parse import urlparse
         d = urlparse(url).netloc.lower()
-        return "xiaoyuzhoufm.com" in d
+        return _domain_matches(d, "xiaoyuzhoufm.com")
 
     def check(self, config=None):
         # Check ffmpeg
