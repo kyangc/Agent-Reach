@@ -98,3 +98,48 @@ class TestDoctor:
         assert "1/3 个渠道可用" in plain
         # Inactive optional channels should be summarized in one line
         assert "可选渠道可以解锁" in plain
+
+
+class TestDoctorCookieCloudIntegration:
+    """doctor.py CookieCloud auto-sync integration tests."""
+
+    def test_sync_fails_silently_does_not_crash_doctor(self, tmp_config, monkeypatch, capsys):
+        """CookieCloud sync failure should not crash doctor.check_all()."""
+        import sys as _sys
+
+        def fake_should_sync(ch):
+            return True
+
+        def fake_sync(*args, **kwargs):
+            raise RuntimeError("network error")
+
+        monkeypatch.setattr(doctor, "_should_sync_from_cookiecloud", fake_should_sync)
+        monkeypatch.setattr("agent_reach.cookie_cloud.sync_cookies", fake_sync)
+        monkeypatch.setattr(doctor, "get_all_channels", lambda: [
+            _StubChannel("twitter", "Twitter", 1, "warn", "no auth", ["twitter-cli"]),
+        ])
+
+        # Should not raise
+        doctor.check_all(tmp_config)
+        err = capsys.readouterr().err
+        assert "CookieCloud" in err or "sync failed" in err.lower()
+
+    def test_sync_triggered_when_twitter_cookie_missing(self, tmp_config, monkeypatch):
+        """_should_sync_from_cookiecloud returns True when twitter auth_token is missing."""
+        # _should_sync_from_cookiecloud creates its own Config() internally.
+        # Mock Config so it reads from tmp_config (which has no twitter_auth_token)
+        # but has cookiecloud enabled.
+        class FakeConfig:
+            data = {"cookiecloud": {"enabled": True}}
+            def get(self, key, default=None):
+                return self.data.get(key, default)
+
+        monkeypatch.setattr(doctor, "Config", lambda: FakeConfig())
+        # cfg has no twitter_auth_token set → should trigger sync
+        result = doctor._should_sync_from_cookiecloud("twitter")
+        assert result is True
+
+    def test_sync_not_triggered_for_non_cookie_channel(self, tmp_config, monkeypatch):
+        """_should_sync_from_cookiecloud returns False for channels that don't need cookie."""
+        assert doctor._should_sync_from_cookiecloud("github") is False
+        assert doctor._should_sync_from_cookiecloud("web") is False

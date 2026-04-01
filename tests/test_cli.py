@@ -351,3 +351,38 @@ class TestCmdDownload:
         with pytest.raises(SystemExit) as exc:
             cli._cmd_download(FakeArgs())
         assert exc.value.code != 0
+
+
+class TestConfigureListAndCookiecloud:
+    """agent-reach configure list and cookiecloud command tests."""
+
+    def test_configure_list_masks_sensitive_credentials(self, tmp_path, monkeypatch, capsys):
+        """configure list must mask sensitive values."""
+        import pathlib, yaml
+
+        class FakeConfig:
+            data = {"twitter_auth_token": "super_secret_token_abc123"}
+
+        monkeypatch.setattr("agent_reach.config.Config", FakeConfig)
+
+        with patch("sys.argv", ["agent-reach", "configure", "list"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "super_secret_token_abc123" not in out
+        assert "super_se..." in out or "twitter_auth_token" in out
+
+    def test_configure_cookiecloud_enables_when_not_configured(self, tmp_path, monkeypatch, capsys):
+        """configure cookiecloud with no args enables CookieCloud."""
+        class FakeConfig:
+            def __init__(self):
+                self.data = {}
+            def save(self):
+                pass
+
+        monkeypatch.setattr("agent_reach.config.Config", FakeConfig)
+
+        with patch("sys.argv", ["agent-reach", "configure", "cookiecloud"]):
+            cli.main()
+        out = capsys.readouterr().out
+        assert "cookiecloud" in out.lower()
+        assert "✅" in out or "enabled" in out.lower()

@@ -80,7 +80,8 @@ def main():
     p_conf.add_argument("key", nargs="?", default=None,
                         choices=["proxy", "github-token", "groq-key",
                                  "twitter-cookies", "youtube-cookies",
-                                 "xhs-cookies"],
+                                 "xhs-cookies",
+                                 "cookiecloud", "list"],
                         help="What to configure (omit if using --from-browser)")
     p_conf.add_argument("value", nargs="*", help="The value(s) to set")
     p_conf.add_argument("--from-browser", metavar="BROWSER",
@@ -1240,6 +1241,63 @@ def _cmd_configure(args):
     if not args.key:
         print("Usage: agent-reach configure <key> <value>")
         print("   or: agent-reach configure --from-browser chrome")
+        print("   or: agent-reach configure cookiecloud")
+        print("   or: agent-reach configure list")
+        return
+
+    # ── cookiecloud / list — no value needed ──
+    if args.key == "cookiecloud":
+        from agent_reach.config import Config
+        cfg = Config()
+        cc = cfg.data.get("cookiecloud", {})
+        if not cc:
+            cc = {
+                "enabled": True,
+                "server": "https://router.kyangc.com:1206",
+                "uuid": "macmini",
+                "platforms": ["twitter", "xhs", "bilibili", "xueqiu", "youtube"],
+            }
+            cfg.data["cookiecloud"] = cc
+            cfg.save()
+            print("✅ CookieCloud enabled!")
+            print(f"   Server: {cc['server']}")
+            print(f"   UUID: {cc['uuid']}")
+            print("   Password: set COOKIECLOUD_PASSWORD environment variable")
+            print("   Platforms: " + ", ".join(cc["platforms"]))
+        else:
+            print("CookieCloud configuration:")
+            print(f"   enabled: {cc.get('enabled', False)}")
+            print(f"   server: {cc.get('server', 'not set')}")
+            print(f"   uuid: {cc.get('uuid', 'not set')}")
+            print(f"   platforms: {', '.join(cc.get('platforms', []))}")
+        return
+
+    if args.key == "list":
+        from agent_reach.config import Config
+        cfg = Config()
+        print("Configured credentials:")
+        sensitive_keys = {
+            "twitter_auth_token", "twitter_ct0",
+            "bilibili_sessdata", "bilibili_csrf",
+            "xueqiu_cookie", "github_token",
+            "groq_api_key",
+        }
+        shown = False
+        for k, v in cfg.data.items():
+            if k in sensitive_keys:
+                masked = f"{str(v)[:8]}..." if v else "(not set)"
+                print(f"  {k}: {masked}")
+                shown = True
+            elif k == "cookiecloud":
+                cc_cfg = v or {}
+                print(f"  cookiecloud.enabled: {cc_cfg.get('enabled', False)}")
+                if cc_cfg.get("enabled"):
+                    print(f"  cookiecloud.server: {cc_cfg.get('server', '')}")
+                    print(f"  cookiecloud.uuid: {cc_cfg.get('uuid', '')}")
+                    print(f"  cookiecloud.platforms: {', '.join(cc_cfg.get('platforms', []))}")
+                shown = True
+        if not shown:
+            print("  (no credentials configured)")
         return
 
     value = " ".join(args.value) if args.value else ""

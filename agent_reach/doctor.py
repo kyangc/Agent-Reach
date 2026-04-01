@@ -8,11 +8,57 @@ from typing import Dict
 from agent_reach.config import Config
 from agent_reach.channels import get_all_channels
 
+_NEEDS_COOKIE = {"twitter", "xhs", "bilibili", "xueqiu", "youtube"}
+
+def _should_sync_from_cookiecloud(channel_name: str) -> bool:
+    """Check if channel needs cookie and CookieCloud is configured and cookies are missing."""
+    if channel_name not in _NEEDS_COOKIE:
+        return False
+
+    try:
+        from pathlib import Path
+        from agent_reach.config import Config
+        cfg = Config()
+        cc = cfg.data.get("cookiecloud", {})
+        if not cc.get("enabled"):
+            return False
+
+        if channel_name == "twitter":
+            return not cfg.get("twitter_auth_token")
+        elif channel_name == "xhs":
+            p = Path.home() / ".xiaohongshu-cli" / "cookies.json"
+            if not p.exists():
+                return True
+            import json, time
+            data = json.loads(p.read_text())
+            saved_at = float(data.get("saved_at", 0))
+            return time.time() - saved_at > 7 * 86400
+        elif channel_name == "bilibili":
+            return not cfg.get("bilibili_sessdata")
+        elif channel_name == "xueqiu":
+            return not cfg.get("xueqiu_cookie")
+        elif channel_name == "youtube":
+            return True  # best-effort
+        return False
+    except Exception:
+        return False
+
 
 def check_all(config: Config) -> Dict[str, dict]:
-    """Check all channels and return status dict."""
+    import sys as _sys
     results = {}
     for ch in get_all_channels():
+        # Try CookieCloud sync if needed (silent, non-blocking)
+        if _should_sync_from_cookiecloud(ch.name):
+            try:
+                from agent_reach.cookie_cloud import sync_cookies
+                print("  [*] Syncing cookies from CookieCloud...", end=" ", flush=True, file=_sys.stderr)
+                results_cc = sync_cookies(platforms=[ch.name], force=False)
+                status_cc = results_cc.get(ch.name, ("skip", ""))[0]
+                print("✅" if status_cc == "ok" else "--", file=_sys.stderr)
+            except Exception as e:
+                print(f"-- (CookieCloud sync failed: {e})", file=_sys.stderr)
+
         status, message = ch.check(config)
         results[ch.name] = {
             "status": status,
