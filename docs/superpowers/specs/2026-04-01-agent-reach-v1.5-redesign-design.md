@@ -324,7 +324,90 @@ agent-reach configure cookiecloud --show         # 显示当前 CookieCloud 配�
 
 ---
 
-## 八、TODO / 待确认
+## 八、测试策略
+
+### 8.1 测试分层
+
+| 层级 | 目标 | 测试方式 |
+|------|------|---------|
+| 单元测试 | 格式转换逻辑、密码读取、配置写入 | `pytest` + `unittest.mock` |
+| CLI 命令测试 | read/search/download/cookie-sync 命令路由 | `patch("sys.argv")` + `capsys` |
+| Channel 接口测试 | 各 channel `read()` 返回类型和格式 | mock subprocess + assertions |
+| 退化测试 | 现有功能不被破坏 | 完整测试套件 |
+| 集成测试 | CookieCloud 端到端同步 | 真实环境（`bash test.sh`） |
+
+### 8.2 新增测试文件
+
+```
+tests/
+  test_channel_read.py     # 新增：各 channel read() 接口契约
+  test_cookie_cloud.py    # 新增：CookieCloud 同步逻辑
+```
+
+### 8.3 PR-1 关键测试
+
+`_configure_xhs_cookies()` 从写 Docker 容器改为写 xhs-cli 文件，需验证：
+
+1. **格式解析**：头部字符串 `"a1=xxx; web_session=yyy"` → `cookies.json`
+2. **JSON 导入**：Cookie-Editor JSON 导出 → `cookies.json`
+3. **a1 必填**：缺少 a1 时拒绝写入
+4. **权限 0o600**：文件权限正确
+5. **零 Docker 调用**：不执行任何 `docker` 子命令
+
+### 8.4 PR-2 关键测试
+
+**CLI 路由**（`read` / `search` / `download`）：
+- 正确分发到对应 channel/tool
+- 工具缺失时输出友好错误，退出码 1
+- `--raw` 标志透传原始输出
+- `--format` 等参数透传给 yt-dlp
+
+**Channel `read()` 接口**：
+- 所有 channel 的 `read()` 返回 `str`
+- Web channel 返回 Markdown
+- XHS channel 使用 `--json` 标志
+
+### 8.5 PR-3 关键测试
+
+**各平台格式转换**：
+
+| 测试场景 | 预期 |
+|---------|------|
+| Twitter cookie 含 `auth_token` + `ct0` | 写入 `~/.config/bird/credentials.env` |
+| 缺少 `auth_token` | skip，不写文件 |
+| XHS cookie 含 `a1` | 写入 `~/.xiaohongshu-cli/cookies.json`，含 `saved_at` |
+| 缺少 `a1` | skip |
+| Bilibili cookie 含 `SESSDATA` + `bili_jct` | 写入 `config.yaml` |
+| YouTube cookie 无 `__Host-*` | 写入 Netscape 文件，含 WARNING |
+| YouTube cookie 有 `__Host-*` | 正常写入，无 WARNING |
+
+**密码读取**：
+- `COOKIECLOUD_PASSWORD` 环境变量优先
+- 未设置时报错（不隐式读取）
+
+### 8.6 PR-4 关键测试
+
+**Doctor 集成**：
+- CookieCloud 同步失败不阻塞 doctor 报告
+- 仅在 cookie 确实缺失时触发同步（非每次 doctor 都同步）
+
+**`configure list`**：
+- 敏感信息（token、cookie）必须脱敏显示
+
+### 8.7 退化测试清单
+
+每个 PR 完成后运行完整测试套件，以下测试必须全部通过：
+
+```
+tests/test_cli.py          — version, doctor_runs, parse_twitter_cookie_input_*
+tests/test_channel_contracts.py — registry, can_handle, check_contract
+tests/test_doctor.py       — check_all, format_report
+tests/test_config.py       — 全量
+```
+
+---
+
+## 九、TODO / 待确认
 
 - [x] `config/mcporter.json` 的 `xiaohongshu` 条目：确认移除
 - [x] YouTube cookie：写入 `~/.agent-reach/youtube_cookies.txt`（Netscape 格式），best-effort 模式（无 `__Host-*` 强认证 cookie 时打印 WARNING）
