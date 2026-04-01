@@ -6,7 +6,38 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [1.3.1] - 2026-03-27
+## [1.4.0] - 2026-04-01
+
+### 🔄 Migration / 迁移
+
+#### 小红书 XHS — 从 Docker xiaohongshu-mcp 迁移到 xhs-cli
+
+- **迁移原因：** xiaohongshu-mcp 需要 Docker，部署复杂，且 MCP 协议调用方式繁琐
+- **新方案：** [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) 通过 pipx 安装，Cookie 通过 `~/.xiaohongshu-cli/cookies.json` 本地存储，无需 Docker
+- **安装方式：** `pipx install xiaohongshu-cli` 或 `agent-reach install --channels=xiaohongshu`
+- **认证方式：** `xhs login`（自动浏览器登录）或 `agent-reach configure xhs-cookies "..."`（Cookie-Editor 导出）
+- **使用方式：** `xhs read <url>` 读取笔记 / `xhs search <keyword>` 搜索 / `xhs status` 验证登录
+- **配置文件：** `~/.xiaohongshu-cli/cookies.json`（文件权限 0600）
+
+### 📝 Documentation / 文档更新
+
+- 新增 `guides/setup-xiaohongshu.md` 完整配置教程
+- README.md / README_en.md / README_ja.md：更新 XHS 章节描述（移除 Docker/Go 引用）
+- README.md / README_en.md / README_ja.md：目录树 xiaohongshu.py 条目更新为 xhs-cli
+- README_en.md / README_ja.md：修复损坏的 GitHub 链接 `github.com/user/xiaohongshu-mcp`
+- docs/install.md：移除 Docker 部署段落，更新为 xhs-cli 安装说明
+
+### 🧹 Cleanup / 清理
+
+- `config/mcporter.json`：移除 xiaohongshu MCP 条目（仅保留 exa）
+- `agent_reach/cli.py` `_configure_xhs_cookies()`：重写，移除所有 Docker/container 代码，改为写入 xhs-cli cookie 文件
+- `agent_reach/cli.py` `_cmd_uninstall()`：卸载时不再清理 xiaohongshu mcporter 条目
+
+### 🧪 Testing / 测试
+
+- 新增 `TestConfigureXhsCookies` 测试类，覆盖 header string 解析、a1 必填验证、0600 权限
+
+
 
 ### 🐛 Bug Fixes / 修复
 

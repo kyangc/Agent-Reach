@@ -124,3 +124,38 @@ class TestCheckUpdateRetry:
         assert result == "error"
         assert "网络超时" in captured.out
         assert "已重试 3 次" in captured.out
+
+
+class TestConfigureXhsCookies:
+    def test_parses_header_string_and_writes_xhs_file(self, tmp_path, monkeypatch):
+        """Input "a1=xxx; web_session=yyy" → writes ~/.xiaohongshu-cli/cookies.json"""
+        import pathlib
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        import agent_reach.cli as cli
+        cli._configure_xhs_cookies("a1=abc123; web_session=xyz789")
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        assert cookie_file.exists()
+        import json
+        data = json.loads(cookie_file.read_text())
+        assert data["a1"] == "abc123"
+        assert data["web_session"] == "xyz789"
+        assert "saved_at" in data
+
+    def test_requires_a1_cookie(self, tmp_path, monkeypatch):
+        """Missing a1 → error, no file written"""
+        import pathlib
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        import agent_reach.cli as cli
+        cli._configure_xhs_cookies("other=value")
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        assert not cookie_file.exists()
+
+    def test_sets_file_permissions_0600(self, tmp_path, monkeypatch):
+        """Cookie file must be 0o600"""
+        import pathlib, stat
+        monkeypatch.setattr(pathlib.Path, "home", lambda: tmp_path)
+        import agent_reach.cli as cli
+        cli._configure_xhs_cookies("a1=xxx")
+        cookie_file = tmp_path / ".xiaohongshu-cli" / "cookies.json"
+        mode = cookie_file.stat().st_mode
+        assert not (mode & stat.S_IROTH)

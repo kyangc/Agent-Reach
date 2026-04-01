@@ -156,32 +156,21 @@ agent-reach configure twitter-cookies "PASTED_STRING"
 agent-reach configure proxy http://user:pass@ip:port
 ```
 
-**XiaoHongShu / 小红书 (需要 Docker):**
-> "小红书需要一个 MCP 服务。需要你的机器上有 Docker。安装好 Docker 后我来搞定剩下的。"
+**XiaoHongShu / 小红书 (xhs-cli):**
+> "小红书通过 xhs-cli 访问，无需 Docker。安装后用 `xhs login` 自动浏览器登录，或用 Cookie-Editor 导出 Cookie 发给我。"
 
 ```bash
-docker run -d --name xiaohongshu-mcp -p 18060:18060 xpzouying/xiaohongshu-mcp
-mcporter config add xiaohongshu http://localhost:18060/mcp
+# 安装（已包含在 agent-reach install --channels=xiaohongshu）
+pipx install xiaohongshu-cli
+
+# 自动浏览器登录（推荐）
+xhs login
+
+# 或手动导入 Cookie（Cookie-Editor 导出）
+agent-reach configure xhs-cookies "a1=xxx; web_session=yyy; ..."
 ```
 
-> 如果在服务器上，建议加代理避免 IP 风控：
-> `docker run -d --name xiaohongshu-mcp -p 18060:18060 -e XHS_PROXY=http://user:pass@ip:port xpzouying/xiaohongshu-mcp`
->
-> **登录方式（优先用 Cookie-Editor，最简单）：**
-> 1. 用户在自己的浏览器登录小红书 (xiaohongshu.com)
-> 2. 用 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) 插件导出 Cookie（JSON 或 Header String 格式均可）
-> 3. 把 Cookie 字符串发给 Agent
-> 4. Agent 运行命令完成登录：
->
-> ```bash
-> # JSON 格式（Cookie-Editor → Export → JSON）
-> agent-reach configure xhs-cookies '[{"name":"web_session","value":"xxx","domain":".xiaohongshu.com",...}]'
->
-> # 或 Header String 格式（Cookie-Editor → Export → Header String）
-> agent-reach configure xhs-cookies "key1=val1; key2=val2; ..."
-> ```
->
-> **注意：** `http://localhost:18060` 根路径可能返回 404，MCP 服务在 `/mcp` 路径。推荐使用 Cookie-Editor 导出方式，不要依赖 Docker 容器内的 QR 扫码登录。
+> 登录后验证：`xhs status`
 
 **微博 / Weibo (mcp-server-weibo):**
 > "微博已默认安装，装好即用。可搜索微博内容、查看热搜、获取用户动态和评论。"
@@ -391,7 +380,7 @@ After installation, use upstream tools directly. See SKILL.md for the full comma
 | GitHub | `gh` | `gh search repos "query"` |
 | Web | `curl` + Jina | `curl -s "https://r.jina.ai/URL"` |
 | Exa Search | `mcporter` | `mcporter call 'exa.web_search_exa(...)'` |
-| 小红书 | `mcporter` | `mcporter call 'xiaohongshu.search_feeds(...)'` |
+| 小红书 | `xhs` | `xhs read <url>` / `xhs search "query"` |
 | 微博 | `mcporter` | `mcporter call 'weibo.get_trendings(limit: 10)'` |
 | 小宇宙播客 | `transcribe.sh` | `bash ~/.agent-reach/tools/xiaoyuzhou/transcribe.sh <URL>` |
 | 抖音 | `mcporter` | `mcporter call 'douyin.parse_douyin_video_info(...)'` |

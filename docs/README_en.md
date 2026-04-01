@@ -63,7 +63,7 @@ Update Agent Reach: https://raw.githubusercontent.com/Panniantong/agent-reach/ma
 |----------|-------------|:-----:|-------|
 | 🌐 **Web** | Read | Zero config | Any URL → clean Markdown ([Jina Reader](https://github.com/jina-ai/reader) ⭐9.8K) |
 | 🐦 **Twitter/X** | Read · Search | Zero config / Cookie | Single tweets readable out of the box. Cookie unlocks search, timeline, posting ([bird](https://www.npmjs.com/package/@steipete/bird)) |
-| 📕 **XiaoHongShu** | Read · Search · **Post · Comment · Like** | mcporter | Via [xiaohongshu-mcp](https://github.com/user/xiaohongshu-mcp) internal API, install and go |
+| 📕 **XiaoHongShu** | Read · Search · **Post · Comment · Like** | Cookie | Via [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) (pipx install xiaohongshu-cli), no Docker required |
 | 🎵 **Douyin** | Video parsing · Watermark-free download | mcporter | Via [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server), no login needed |
 | 💼 **LinkedIn** | Jina Reader (public pages) | Full profiles, companies, job search | Tell your Agent "help me set up LinkedIn" |
 | 💬 **WeChat Articles** | Search + Read | Zero config | Search + read WeChat Official Account articles (full Markdown) ([wechat-article-for-ai](https://github.com/Panniantong/wechat-article-for-ai) + [miku_ai](https://github.com/GobinFan/Miku_Spider)) |
@@ -201,7 +201,7 @@ channels/
 ├── github.py       → gh CLI          ← swap to REST API, PyGithub…
 ├── bilibili.py     → yt-dlp          ← swap to bilibili-api…
 ├── reddit.py       → Exa             ← search + read, no proxy needed
-├── xiaohongshu.py  → mcporter MCP    ← swap to other XHS tools…
+├── xiaohongshu.py  → xhs-cli (pipx install xiaohongshu-cli)
 ├── douyin.py       → mcporter MCP    ← swap to other Douyin tools…
 ├── linkedin.py     → linkedin-mcp    ← swap to LinkedIn API…
 ├── rss.py          → feedparser      ← swap to atoma…
@@ -221,7 +221,7 @@ Each channel file only checks whether its upstream tool is installed and working
 | Search the web | [Exa](https://exa.ai) via [mcporter](https://github.com/nicepkg/mcporter) | AI semantic search, MCP integration, no API key |
 | GitHub | [gh CLI](https://cli.github.com) | Official tool, full API after auth |
 | Read RSS | [feedparser](https://github.com/kurtmckee/feedparser) | Python ecosystem standard, 2.3K stars |
-| XiaoHongShu | [xiaohongshu-mcp](https://github.com/user/xiaohongshu-mcp) | Internal API, bypasses anti-bot |
+| XiaoHongShu | [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) | pipx install xiaohongshu-cli, no Docker needed |
 | Douyin | [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) | MCP server, no login needed, video parsing + watermark-free download |
 | LinkedIn | [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server) | 900+ stars, MCP server, browser automation |
 | WeChat Articles | [wechat-article-for-ai](https://github.com/Panniantong/wechat-article-for-ai) + [miku_ai](https://github.com/GobinFan/Miku_Spider) | Stealth browser for full article reading + Sogou search |
@@ -285,7 +285,9 @@ Agent Reach uses bird CLI which accesses Twitter via cookie auth — same as you
 <details>
 <summary><strong>How to read XiaoHongShu / 小红书 content programmatically?</strong></summary>
 
-Agent Reach integrates with xiaohongshu-mcp (runs in Docker). After setup, use `mcporter call 'xiaohongshu.get_feed_detail(...)'` to read notes or `mcporter call 'xiaohongshu.search_feeds(keyword: "query")'` to search.
+Install xhs-cli (`pipx install xiaohongshu-cli`), then authenticate with `xhs login` (auto browser login) or `agent-reach configure xhs-cookies "..."` (Cookie-Editor export). Use `xhs read <url>`, `xhs search <keyword>`, or `xhs status` to verify. No Docker required.
+
+See `guides/setup-xiaohongshu.md` for the full setup guide.
 </details>
 
 <details>
@@ -325,7 +327,7 @@ This is useful when your agent workflow is “paste a link, get a script file”
 
 ## Credits
 
-[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [feedparser](https://github.com/kurtmckee/feedparser) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
+[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [feedparser](https://github.com/kurtmckee/feedparser) · [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
 
 ## Contact
 

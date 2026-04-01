@@ -63,7 +63,7 @@ Update Agent Reach: https://raw.githubusercontent.com/Panniantong/agent-reach/ma
 |-----------------|------|:----------:|------|
 | 🌐 **Web** | 閲覧 | 設定不要 | 任意のURL → クリーンなMarkdown（[Jina Reader](https://github.com/jina-ai/reader) ⭐9.8K） |
 | 🐦 **Twitter/X** | 閲覧・検索 | 設定不要 / Cookie | 単一ツイートはすぐに閲覧可能。Cookieで検索、タイムライン、投稿が解放（[bird](https://www.npmjs.com/package/@steipete/bird)） |
-| 📕 **小紅書** | 閲覧・検索・**投稿・コメント・いいね** | mcporter | [xiaohongshu-mcp](https://github.com/user/xiaohongshu-mcp) 内部APIで、インストールしてすぐ使える |
+| 📕 **小紅書** | 閲覧・検索・**投稿・コメント・いいね** | Cookie | [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli)（pipx install xiaohongshu-cli）、Docker不要 |
 | 🎵 **抖音** | 動画解析・ウォーターマークなしダウンロード | mcporter | [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server)、ログイン不要 |
 | 💼 **LinkedIn** | Jina Reader（公開ページ） | プロフィール、企業、求人検索 | エージェントに「LinkedInの設定を手伝って」と伝えてください |
 | 💬 **WeChat記事** | 検索 + 閲覧 | 設定不要 | WeChat公式アカウント記事の検索+閲覧（完全Markdown）（[wechat-article-for-ai](https://github.com/Panniantong/wechat-article-for-ai) + [miku_ai](https://github.com/GobinFan/Miku_Spider)） |
@@ -201,7 +201,7 @@ channels/
 ├── github.py       → gh CLI          ← REST API、PyGithubなどに差し替え可能…
 ├── bilibili.py     → yt-dlp          ← bilibili-apiなどに差し替え可能…
 ├── reddit.py       → JSON API + Exa  ← PRAW、Pushshiftなどに差し替え可能…
-├── xiaohongshu.py  → mcporter MCP    ← 他のXHSツールに差し替え可能…
+├── xiaohongshu.py  → xhs-cli（pipx install xiaohongshu-cli）
 ├── douyin.py       → mcporter MCP    ← 他の抖音ツールに差し替え可能…
 ├── linkedin.py     → linkedin-mcp    ← LinkedIn APIに差し替え可能…
 ├── rss.py          → feedparser      ← atomaなどに差し替え可能…
@@ -221,7 +221,7 @@ channels/
 | Web検索 | [Exa](https://exa.ai)（[mcporter](https://github.com/nicepkg/mcporter)経由） | AIセマンティック検索、MCP統合、APIキー不要 |
 | GitHub | [gh CLI](https://cli.github.com) | 公式ツール、認証後フルAPI |
 | RSS閲覧 | [feedparser](https://github.com/kurtmckee/feedparser) | Pythonエコシステムの標準、⭐2.3K |
-| 小紅書 | [xiaohongshu-mcp](https://github.com/user/xiaohongshu-mcp) | 内部API、アンチボット回避 |
+| 小紅書 | [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) | pipx install xiaohongshu-cli、Docker不要 |
 | 抖音 | [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) | MCPサーバー、ログイン不要、動画解析 + ウォーターマークなしダウンロード |
 | LinkedIn | [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server) | ⭐900+、MCPサーバー、ブラウザ自動化 |
 | WeChat記事 | [wechat-article-for-ai](https://github.com/Panniantong/wechat-article-for-ai) + [miku_ai](https://github.com/GobinFan/Miku_Spider) | ステルスブラウザで記事全文閲覧 + Sogou検索 |
@@ -285,7 +285,9 @@ Agent Reach はbird CLIを使用し、Cookie認証でTwitterにアクセスし�
 <details>
 <summary><strong>小紅書のコンテンツをプログラムで読むには？</strong></summary>
 
-Agent Reach は xiaohongshu-mcp（Dockerで実行）と統合されています。セットアップ後、`mcporter call 'xiaohongshu.get_feed_detail(...)'` でノートを閲覧、`mcporter call 'xiaohongshu.search_feeds(keyword: "query")'` で検索できます。
+xhs-cli（`pipx install xiaohongshu-cli`）をインストールし、`xhs login`（自動ブラウザログイン）または `agent-reach configure xhs-cookies "..."`（Cookie-Editorエクスポート）で認証。`xhs read <url>`、`xhs search <キーワード>`、`xhs status` を使用。Docker不要。
+
+詳細は `guides/setup-xiaohongshu.md` を参照。
 </details>
 
 <details>
@@ -298,7 +300,7 @@ douyin-mcp-serverをインストールすれば、`mcporter call 'douyin.parse_d
 
 ## クレジット
 
-[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [feedparser](https://github.com/kurtmckee/feedparser) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
+[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [feedparser](https://github.com/kurtmckee/feedparser) · [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
 
 ## お問い合わせ
 

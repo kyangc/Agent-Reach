@@ -1,96 +1,78 @@
-# 小红书配置指南
+# 小红书 (XiaoHongShu) 配置指南
 
 ## 功能说明
-读取和搜索小红书笔记。通过 [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) 实现（⭐9K+，Go 语言，内置 Chrome 浏览器）。
+
+读取和搜索小红书笔记。通过 [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli)（pipx install xiaohongshu-cli）实现，无需 Docker。
 
 ## 前置条件
-- Docker（用来运行 xiaohongshu-mcp 服务）
-- mcporter CLI（MCP 协议桥接工具）
+
+- pipx（用来安装 xhs-cli）
+- pipx 已安装：`python3 -m pip install pipx && pipx ensurepath`
 
 ## Agent 可自动完成的步骤
 
-### 1. 安装 mcporter
+### 1. 安装 xhs-cli
 ```bash
-npm install -g mcporter
+pipx install xiaohongshu-cli
 ```
 
-### 2. 启动 xiaohongshu-mcp 服务
+或使用 uv：
 ```bash
-docker run -d \
-  --name xiaohongshu-mcp \
-  -p 18060:18060 \
-  xpzouying/xiaohongshu-mcp
+uv tool install xiaohongshu-cli
 ```
 
-> 如需代理（服务器部署推荐）：
-> ```bash
-> docker run -d \
->   --name xiaohongshu-mcp \
->   -p 18060:18060 \
->   -e XHS_PROXY=http://user:pass@ip:port \
->   xpzouying/xiaohongshu-mcp
-> ```
-
-### 3. 注册到 mcporter
+### 2. 验证安装
 ```bash
-mcporter config add xiaohongshu http://localhost:18060/mcp
+xhs --version
 ```
-
-### 4. 验证
-```bash
-agent-reach doctor
-```
-
-应该看到小红书显示为 ✅ 或 ⚠️（MCP 已连接但未登录）。
 
 ## 需要用户手动做的步骤
 
-如果 doctor 显示"MCP 已连接但未登录"，需要导入 cookies：
+### 方式一：自动浏览器登录（推荐）
+```bash
+xhs login
+```
+`xhs login` 会自动打开浏览器，跳转到小红书登录页面。登录成功后，Cookie 自动保存到 `~/.xiaohongshu-cli/cookies.json`。
 
-> **推荐方式：Cookie-Editor 浏览器导出（最可靠）**
->
-> 1. 在 Chrome 中安装 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) 扩展
-> 2. 浏览器登录 xiaohongshu.com
-> 3. 点击 Cookie-Editor 图标 → Export → Header String
-> 4. 把导出的字符串发给 Agent，运行：`agent-reach configure xhs-cookies "导出的cookie字符串"`
->
-> **注意**：`http://localhost:18060` 根路径可能返回 404，这是正常的——MCP 服务在 `/mcp` 路径。
-> 不要依赖 QR 扫码登录，Docker 容器内的 QR 登录页面不一定可用，且 cookies 不会自动共享到 MCP 服务。
+### 方式二：Cookie-Editor 导出
+1. 在 Chrome 浏览器中登录 [xiaohongshu.com](https://xiaohongshu.com)
+2. 安装 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) Chrome 插件
+3. 点击插件图标 → **Export** → 选择 **Header String** 格式
+4. 把导出的字符串发给 Agent：
+   ```bash
+   agent-reach configure xhs-cookies "a1=xxx; web_session=yyy; ..."
+   ```
+
+> **Cookie 安全提醒**：Cookie 等同于完整登录权限，建议使用**专用小号**，不要用主账号。
+
+## 验证
+```bash
+xhs status
+```
+如果显示已登录，说明认证成功。
+
+## 使用方式
+
+| 操作 | 命令 |
+|------|------|
+| 读取笔记 | `xhs read <url>` |
+| 搜索笔记 | `xhs search <keyword>` |
+| 查看登录状态 | `xhs status` |
 
 ## 常见问题
 
-**Q: Docker 容器重启后 cookie 丢了？**
-A: 挂载数据卷持久化：
+**Q: `xhs login` 提示找不到命令？**
+A: 确认安装成功：
 ```bash
-docker run -d \
-  --name xiaohongshu-mcp \
-  -p 18060:18060 \
-  -v xhs-data:/app/data \
-  xpzouying/xiaohongshu-mcp
+pipx ensurepath   # 确保 pipx 安装路径在 PATH 中
+pipx install xiaohongshu-cli
 ```
 
-**Q: 服务器上小红书提示 IP 风险？**
-A: 加代理参数 `-e XHS_PROXY=http://user:pass@ip:port`，推荐住宅代理。
+**Q: Cookie 导入后还是显示未登录？**
+A:
+1. 检查 Cookie 是否包含 `a1` 字段（必须）
+2. 确认 Cookie 没有过期（重新导出一次）
+3. 运行 `xhs status` 查看详细错误信息
 
-**Q: Docker 镜像不支持 ARM64 / Apple Silicon？**
-A: 上游镜像暂无 ARM64 版本，两种解决办法：
-
-方法一：使用 Rosetta 模拟运行（推荐，最简单）
-```bash
-docker run -d \
-  --name xiaohongshu-mcp \
-  -p 18060:18060 \
-  --platform linux/amd64 \
-  xpzouying/xiaohongshu-mcp
-```
-
-方法二：从源码编译原生 ARM64 版本
-```bash
-git clone https://github.com/xpzouying/xiaohongshu-mcp
-cd xiaohongshu-mcp
-docker build -t xiaohongshu-mcp .
-docker run -d --name xiaohongshu-mcp -p 18060:18060 xiaohongshu-mcp
-```
-
-**Q: 我不想用 Docker？**
-A: 可以从源码编译：https://github.com/xpzouying/xiaohongshu-mcp
+**Q: 服务器/海外 IP 无法访问小红书？**
+A: 本地电脑通常没有问题。服务器环境可能需要代理（xhs-cli 支持 HTTP_PROXY 环境变量）。

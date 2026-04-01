@@ -174,7 +174,7 @@ channels/
 ├── github.py       → gh CLI          ← 可以换成 REST API、PyGithub……
 ├── bilibili.py     → yt-dlp          ← 可以换成 bilibili-api……
 ├── reddit.py       → Exa             ← 搜索+阅读，无需代理
-├── xiaohongshu.py  → mcporter MCP    ← 可以换成其他 XHS 工具……
+├── xiaohongshu.py  → xhs-cli（pipx install xiaohongshu-cli）
 ├── douyin.py       → mcporter MCP    ← 可以换成其他抖音工具……
 ├── linkedin.py     → linkedin-mcp    ← 可以换成 LinkedIn API……
 ├── wechat.py       → camoufox+miku   ← 搜索+阅读微信公众号文章
@@ -195,7 +195,7 @@ channels/
 | 搜全网 | [Exa](https://exa.ai) via [mcporter](https://github.com/steipete/mcporter) | AI 语义搜索，MCP 接入免 Key |
 | GitHub | [gh CLI](https://cli.github.com) | 官方工具，认证后完整 API 能力 |
 | 读 RSS | [feedparser](https://github.com/kurtmckee/feedparser) | Python 生态标准选择，2.3K Star |
-| 小红书 | [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) | ⭐9K+，Go 语言，Docker 一键部署 |
+| 小红书 | [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli)（pipx install xiaohongshu-cli） | pipx install xiaohongshu-cli，无 Docker 依赖 |
 | 抖音 | [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) | MCP 服务，无需登录，视频解析 + 无水印下载 |
 | LinkedIn | [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server) | ⭐900+，MCP 服务，浏览器自动化 |
 | 微信公众号 | [wechat-article-for-ai](https://github.com/Panniantong/wechat-article-for-ai) + [miku_ai](https://github.com/GobinFan/Miku_Spider) | Camoufox 隐身浏览器读全文 + 搜狗搜索 |
@@ -333,7 +333,9 @@ Agent Reach 已改为通过 Exa 搜索和阅读 Reddit 内容，完全绕过 Red
 <details>
 <summary><strong>怎么让 AI Agent 读小红书？</strong></summary>
 
-小红书需要通过 Docker 运行一个 MCP 服务。安装 Docker 后，运行 `agent-reach install` 会自动配置。之后 Agent 就能用 `mcporter call 'xiaohongshu.get_feed_detail(...)'` 读取笔记或 `mcporter call 'xiaohongshu.search_feeds(keyword: "关键词")'` 搜索了。
+安装 xhs-cli 后，Agent 就能用 `xhs read <url>` 读取笔记、`xhs search <关键词>` 搜索。Cookie 配置：`agent-reach configure xhs-cookies "a1=xxx; web_session=yyy; ..."`（由 Cookie-Editor 导出），或直接运行 `xhs login` 自动浏览器登录。无需 Docker。
+
+`xhs status` 可查看登录状态，`guides/setup-xiaohongshu.md` 有完整配置教程。
 </details>
 
 <details>
@@ -360,7 +362,7 @@ Yes! Agent Reach is an installer + configuration tool — any AI coding agent th
 
 ## 致谢
 
-[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [mcporter](https://github.com/steipete/mcporter) · [feedparser](https://github.com/kurtmckee/feedparser) · [xiaohongshu-mcp](https://github.com/xpzouying/xiaohongshu-mcp) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
+[Jina Reader](https://github.com/jina-ai/reader) · [yt-dlp](https://github.com/yt-dlp/yt-dlp) · [bird](https://www.npmjs.com/package/@steipete/bird) · [Exa](https://exa.ai) · [mcporter](https://github.com/steipete/mcporter) · [feedparser](https://github.com/kurtmckee/feedparser) · [xhs-cli](https://github.com/RES的一方/xiaohongshu-cli) · [douyin-mcp-server](https://github.com/yzfly/douyin-mcp-server) · [linkedin-scraper-mcp](https://github.com/stickerdaniel/linkedin-mcp-server)
 
 ## 联系
 
